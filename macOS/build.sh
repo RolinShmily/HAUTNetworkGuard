@@ -17,7 +17,7 @@ APP_NAME="HAUTNetworkGuard"
 APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
 
 # 清理旧构建
-echo "[1/4] 清理旧构建..."
+echo "[1/5] 清理旧构建..."
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
@@ -29,7 +29,7 @@ rm -rf /var/folders/*/*/com.apple.DeveloperTools/*/SwiftASTContext/* 2>/dev/null
 SDK_PATH=$(xcrun --show-sdk-path)
 
 # 编译 Swift 源文件
-echo "[2/4] 编译 Swift 源文件..."
+echo "[2/5] 编译 Swift 源文件..."
 swiftc \
     -o "$BUILD_DIR/$APP_NAME" \
     -sdk "$SDK_PATH" \
@@ -49,7 +49,7 @@ swiftc \
     "$SOURCES_DIR/main.swift"
 
 # 创建 .app bundle
-echo "[3/4] 创建应用包..."
+echo "[3/5] 创建应用包..."
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
 
@@ -62,7 +62,10 @@ cp "$PROJECT_DIR/Info.plist" "$APP_BUNDLE/Contents/"
 # 创建 PkgInfo
 echo "APPL????" > "$APP_BUNDLE/Contents/PkgInfo"
 
-echo "[4/4] 构建完成!"
+echo "[4/5] 代码签名 (ad-hoc)..."
+codesign -s - --force --deep "$APP_BUNDLE"
+
+echo "[5/5] 构建完成!"
 echo ""
 echo "应用位置: $APP_BUNDLE"
 echo ""

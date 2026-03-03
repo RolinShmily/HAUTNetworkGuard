@@ -47,7 +47,7 @@ jobs:
           path: HAUTNetworkGuard-Windows.zip
 
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -58,6 +58,11 @@ jobs:
           chmod +x build.sh create-dmg.sh
           ./build.sh
           ./create-dmg.sh
+
+      - name: Verify Code Signature
+        run: |
+          codesign --verify --verbose macOS/build/HAUTNetworkGuard.app
+          echo "代码签名验证通过"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -107,6 +112,17 @@ jobs:
             | **Windows** | `HAUTNetworkGuard-Windows.zip` | 解压后运行 `HAUTNetworkGuard.exe` |
             | **macOS** | `HAUTNetworkGuard.dmg` | 双击安装到应用程序 |
             | **OpenWrt** | 一键安装 | `wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/main/OpenWrt/install-online.sh \| sh` |
+
+            ### ⚠️ macOS 用户注意
+
+            首次打开可能提示"无法验证开发者"，解决方法：
+
+            **方法一**: 右键点击应用 → 选择"打开" → 在弹窗中点击"打开"
+
+            **方法二**: 在终端执行：
+            ```
+            xattr -cr /Applications/HAUTNetworkGuard.app
+            ```
             
             ### 🔄 更新内容
             
