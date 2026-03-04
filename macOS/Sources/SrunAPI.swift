@@ -71,50 +71,36 @@ class SrunAPI {
     private var username: String { AppConfig.shared.username }
     private var password: String { AppConfig.shared.password }
 
-    private let session: URLSession
-
-    init() {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 10
-        config.timeoutIntervalForResource = 15
-        self.session = URLSession(configuration: config)
-    }
+    private let httpClient = DirectHTTPClient(timeout: 10)
 
     /// 检查网络状态 (使用 JSONP 格式，与 OpenWrt 一致)
     func checkStatus(completion: @escaping (NetworkStatus) -> Void) {
         // 生成 JSONP callback 参数
         let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
         let callback = "jQuery_\(timestamp)"
-        
+
         var urlComponents = URLComponents(string: SrunAPI.statusURL)
         urlComponents?.queryItems = [
             URLQueryItem(name: "callback", value: callback),
             URLQueryItem(name: "_", value: String(timestamp))
         ]
-        
-        guard let url = urlComponents?.url else {
+
+        guard let url = urlComponents?.url?.absoluteString else {
             completion(.error("无效的URL"))
             return
         }
 
-        let task = session.dataTask(with: url) { data, response, error in
-            if let error = error {
+        httpClient.get(url: url) { result in
+            switch result {
+            case .success(let responseStr):
+                Logger.log("状态响应: \(responseStr)")
+                let status = self.parseStatusResponse(responseStr, callback: callback)
+                completion(status)
+            case .failure(let error):
                 Logger.log("状态检查失败: \(error.localizedDescription)")
                 completion(.offline)
-                return
             }
-
-            guard let data = data,
-                  let responseStr = String(data: data, encoding: .utf8) else {
-                completion(.offline)
-                return
-            }
-
-            Logger.log("状态响应: \(responseStr)")
-            let status = self.parseStatusResponse(responseStr, callback: callback)
-            completion(status)
         }
-        task.resume()
     }
 
     /// 解析状态响应 (支持 JSONP 和 CSV 格式)
@@ -249,41 +235,24 @@ class SrunAPI {
     /// 发送 POST 请求
     private func sendRequest(params: [String: String],
                             completion: @escaping (LoginResult) -> Void) {
-        guard let url = URL(string: SrunAPI.loginURL) else {
-            completion(.failed("无效的URL"))
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded",
-                        forHTTPHeaderField: "Content-Type")
-
         let bodyString = params.map { "\($0.key)=\($0.value.urlEncoded)" }
                                .joined(separator: "&")
-        request.httpBody = bodyString.data(using: .utf8)
 
         Logger.log("发送请求: \(SrunAPI.loginURL)")
         Logger.log("操作: \(params["action"] ?? "")")
         Logger.log("请求体: \(bodyString)")
 
-        let task = session.dataTask(with: request) { data, response, error in
-            if let error = error {
+        httpClient.post(url: SrunAPI.loginURL, body: bodyString) { result in
+            switch result {
+            case .success(let responseStr):
+                Logger.log("响应: \(responseStr)")
+                let loginResult = self.parseLoginResponse(responseStr)
+                completion(loginResult)
+            case .failure(let error):
                 Logger.log("请求失败: \(error.localizedDescription)")
                 completion(.failed(error.localizedDescription))
-                return
-            }
-
-            if let data = data,
-               let responseStr = String(data: data, encoding: .utf8) {
-                Logger.log("响应: \(responseStr)")
-                let result = self.parseLoginResponse(responseStr)
-                completion(result)
-            } else {
-                completion(.failed("无响应数据"))
             }
         }
-        task.resume()
     }
 
     /// 解析登录响应

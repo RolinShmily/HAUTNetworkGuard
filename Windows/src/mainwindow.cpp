@@ -8,7 +8,7 @@
 #include <QVBoxLayout>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
-  setWindowTitle("HAUT Network Guard v1.3.6");
+  setWindowTitle("HAUT Network Guard v1.3.7");
   setFixedSize(400, 550);
 
   setupUi();

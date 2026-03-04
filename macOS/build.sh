@@ -36,8 +36,10 @@ swiftc \
     -target arm64-apple-macosx11.0 \
     -framework Cocoa \
     -framework UserNotifications \
+    -framework Network \
     "$SOURCES_DIR/Config.swift" \
     "$SOURCES_DIR/Encryption.swift" \
+    "$SOURCES_DIR/DirectHTTPClient.swift" \
     "$SOURCES_DIR/SrunAPI.swift" \
     "$SOURCES_DIR/UpdateChecker.swift" \
     "$SOURCES_DIR/UpdateWindow.swift" \
