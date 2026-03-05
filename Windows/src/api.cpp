@@ -39,7 +39,7 @@ void Api::login(const QString &username, const QString &password) {
   request.setHeader(QNetworkRequest::ContentTypeHeader,
                     "application/x-www-form-urlencoded");
   request.setHeader(QNetworkRequest::UserAgentHeader,
-                    "HAUTNetworkGuard/1.3.7 Qt");
+                    "HAUTNetworkGuard/1.3.8 Qt");
   request.setTransferTimeout(10000);
 
   QNetworkReply *reply = m_networkManager->post(
@@ -56,7 +56,7 @@ void Api::logout() {
   request.setHeader(QNetworkRequest::ContentTypeHeader,
                     "application/x-www-form-urlencoded");
   request.setHeader(QNetworkRequest::UserAgentHeader,
-                    "HAUTNetworkGuard/1.3.7 Qt");
+                    "HAUTNetworkGuard/1.3.8 Qt");
   request.setTransferTimeout(10000);
 
   QNetworkReply *reply = m_networkManager->post(
@@ -77,7 +77,7 @@ void Api::checkStatus() {
 
   QNetworkRequest request(url);
   request.setHeader(QNetworkRequest::UserAgentHeader,
-                    "HAUTNetworkGuard/1.3.7 Qt");
+                    "HAUTNetworkGuard/1.3.8 Qt");
   request.setTransferTimeout(5000);
 
   QNetworkReply *reply = m_networkManager->get(request);
