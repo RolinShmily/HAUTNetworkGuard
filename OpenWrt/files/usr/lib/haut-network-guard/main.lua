@@ -2,6 +2,8 @@
 -- HAUT Network Guard - OpenWrt 版本
 -- 主程序入口
 
+local VERSION = "1.3.8"
+
 package.path = package.path .. ";/usr/lib/haut-network-guard/?.lua"
 
 local api = require("api")
@@ -89,7 +91,7 @@ end
 
 -- 主循环
 local function main()
-    log("info", "HAUT Network Guard 启动")
+    log("info", "HAUT Network Guard v" .. VERSION .. " 启动")
 
     local config = read_config()
 
