@@ -44,6 +44,7 @@ private:
   void setupUi();
   void loadSettings();
   void saveSettings();
+  void syncCredentialsToConfig();
   void updateStatusDisplay(bool online, const QString &ip = "",
                            qint64 bytes = 0, qint64 seconds = 0);
   QString formatBytes(qint64 bytes);
@@ -72,6 +73,8 @@ private:
 
   bool m_isOnline = false;
   bool m_startupLoginAttempted = false;
+  bool m_isLoggingIn = false;
+  bool m_isManualLogin = false;
 };
 
 #endif // MAINWINDOW_H

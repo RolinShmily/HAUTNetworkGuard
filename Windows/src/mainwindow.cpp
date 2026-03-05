@@ -41,11 +41,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   int interval = Config::instance().checkInterval() * 1000;
   m_statusTimer->start(interval);
 
-  // 启动时检测状态并尝试自动登录
+  // 启动时检测状态
   QTimer::singleShot(1000, this, &MainWindow::checkNetworkStatus);
 
-  // 启动时延迟自动登录 (等待网络就绪)
-  QTimer::singleShot(3000, this, &MainWindow::tryAutoLogin);
+  // 启动时延迟自动登录 (等待首次状态检测完成)
+  QTimer::singleShot(4000, this, &MainWindow::tryAutoLogin);
 }
 
 MainWindow::~MainWindow() {}
@@ -175,6 +175,13 @@ void MainWindow::saveSettings() {
   m_statusTimer->setInterval(config.checkInterval() * 1000);
 }
 
+void MainWindow::syncCredentialsToConfig() {
+  Config &config = Config::instance();
+  config.setUsername(m_usernameEdit->text().trimmed());
+  config.setPassword(m_passwordEdit->text());
+  config.save();
+}
+
 void MainWindow::onLoginClicked() {
   QString username = m_usernameEdit->text().trimmed();
   QString password = m_passwordEdit->text();
@@ -184,6 +191,14 @@ void MainWindow::onLoginClicked() {
     return;
   }
 
+  if (m_isLoggingIn)
+    return;
+
+  // 同步凭据到 Config，确保自动重连可用
+  syncCredentialsToConfig();
+
+  m_isLoggingIn = true;
+  m_isManualLogin = true;
   m_loginBtn->setEnabled(false);
   m_loginBtn->setText("登录中...");
 
@@ -191,6 +206,9 @@ void MainWindow::onLoginClicked() {
 }
 
 void MainWindow::onLogoutClicked() {
+  if (m_isLoggingIn)
+    return;
+
   m_logoutBtn->setEnabled(false);
   m_logoutBtn->setText("注销中...");
 
@@ -203,19 +221,26 @@ void MainWindow::onSaveClicked() {
 }
 
 void MainWindow::onLoginSuccess(const QString &message) {
+  m_isLoggingIn = false;
   m_loginBtn->setEnabled(true);
   m_loginBtn->setText("登录");
 
   m_trayIcon->showMessage("登录成功", message);
+  m_isManualLogin = false;
   checkNetworkStatus();
 }
 
 void MainWindow::onLoginFailed(const QString &error) {
+  m_isLoggingIn = false;
   m_loginBtn->setEnabled(true);
   m_loginBtn->setText("登录");
 
   m_trayIcon->showMessage("登录失败", error, QSystemTrayIcon::Warning);
-  QMessageBox::warning(this, "登录失败", error);
+  // 只有手动登录失败才弹模态对话框，自动登录失败仅显示托盘通知
+  if (m_isManualLogin) {
+    QMessageBox::warning(this, "登录失败", error);
+  }
+  m_isManualLogin = false;
 }
 
 void MainWindow::onLogoutSuccess() {
@@ -241,31 +266,33 @@ void MainWindow::onStatusChecked(bool online, const QString &ip,
   updateStatusDisplay(online, ip, bytesUsed, secondsOnline);
   m_trayIcon->setOnlineStatus(online);
 
-  // 如果离线且开启了自动登录，则自动重连
-  if (!online && Config::instance().autoLogin()) {
+  // 如果离线且开启了自动登录，尝试自动重连
+  // 条件：从在线变为离线（掉线重连），且没有正在进行的登录
+  if (!online && wasOnline && !m_isLoggingIn &&
+      Config::instance().autoLogin()) {
     QString username = Config::instance().username();
     QString password = Config::instance().password();
 
     if (!username.isEmpty() && !password.isEmpty()) {
-      // 只有从在线变为离线，或启动时检测才自动登录
-      if (wasOnline || !m_startupLoginAttempted) {
-        m_api->login(username, password);
-      }
+      m_isLoggingIn = true;
+      m_isManualLogin = false;
+      m_api->login(username, password);
     }
   }
 }
 
 void MainWindow::tryAutoLogin() {
-  // 启动时尝试自动登录
   if (m_startupLoginAttempted)
     return;
   m_startupLoginAttempted = true;
 
-  if (!m_isOnline && Config::instance().autoLogin()) {
+  if (!m_isOnline && !m_isLoggingIn && Config::instance().autoLogin()) {
     QString username = Config::instance().username();
     QString password = Config::instance().password();
 
     if (!username.isEmpty() && !password.isEmpty()) {
+      m_isLoggingIn = true;
+      m_isManualLogin = false;
       m_api->login(username, password);
     }
   }
