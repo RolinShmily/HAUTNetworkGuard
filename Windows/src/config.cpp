@@ -1,4 +1,5 @@
 #include "config.h"
+#include "logger.h"
 #include <QCoreApplication>
 #include <QDir>
 
@@ -24,8 +25,9 @@ void Config::load() {
   m_checkInterval = settings.value("check_interval", 30).toInt();
   m_autoLogin = settings.value("auto_login", true).toBool();
 
-  // 确保间隔在合理范围内
   m_checkInterval = qBound(5, m_checkInterval, 300);
+
+  Logger::info(QString("配置已加载 (用户: %1, 间隔: %2s)").arg(m_username).arg(m_checkInterval));
 }
 
 void Config::save() {
@@ -40,6 +42,8 @@ void Config::save() {
   settings.setValue("auto_login", m_autoLogin);
 
   settings.sync();
+
+  Logger::info("配置已保存");
 }
 
 QString Config::encodePassword(const QString &password) {

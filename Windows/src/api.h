@@ -40,6 +40,8 @@ private:
 
   static const QString STATUS_URL;
   static const QString LOGIN_URL;
+
+  static QString percentEncode(const QString &value);
 };
 
 #endif // API_H

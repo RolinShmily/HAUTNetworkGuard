@@ -2,28 +2,12 @@
 -- HAUT Network Guard - OpenWrt 版本
 -- 主程序入口
 
-local VERSION = "1.3.8"
+local VERSION = "1.3.9"
 
 package.path = package.path .. ";/usr/lib/haut-network-guard/?.lua"
 
 local api = require("api")
-
--- 配置文件路径
-local CONFIG_FILE = "/etc/config/haut-network-guard"
-
--- 日志函数
-local function log(level, msg)
-    local timestamp = os.date("%H:%M:%S")
-    local prefix = {
-        info = "[INFO]",
-        warn = "[WARN]",
-        error = "[ERROR]",
-        debug = "[DEBUG]"
-    }
-    print(string.format("%s %s %s", timestamp, prefix[level] or "[LOG]", msg))
-    -- 同时写入系统日志
-    os.execute(string.format("logger -t haut-network-guard '%s'", msg))
-end
+local log = require("log")
 
 -- 读取 UCI 配置
 local function read_config()
@@ -91,49 +75,46 @@ end
 
 -- 主循环
 local function main()
-    log("info", "HAUT Network Guard v" .. VERSION .. " 启动")
+    log.info("HAUT Network Guard v" .. VERSION .. " 启动")
 
     local config = read_config()
 
     if not config.enabled then
-        log("warn", "服务已禁用")
+        log.warn("服务已禁用")
         return
     end
 
     if config.username == "" or config.password == "" then
-        log("error", "未配置用户名或密码")
+        log.error("未配置用户名或密码")
         return
     end
 
-    log("info", "用户: " .. config.username)
-    log("info", "检测间隔: " .. config.interval .. "秒")
+    log.info("用户: " .. config.username)
+    log.info("检测间隔: " .. config.interval .. "秒")
 
     while true do
-        -- 检查网络状态
         local user_info = api.get_user_info()
 
         if user_info then
-            log("info", string.format(
+            log.info(string.format(
                 "在线 - IP: %s, 流量: %s, 时长: %s",
                 user_info.ip,
                 format_bytes(user_info.bytes),
                 format_time(user_info.seconds)
             ))
         else
-            log("warn", "离线，尝试登录...")
+            log.warn("离线，尝试登录...")
 
             local success, msg = api.login(config.username, config.password)
             if success then
-                log("info", "登录成功: " .. msg)
+                log.info("登录成功: " .. msg)
             else
-                log("error", "登录失败: " .. msg)
+                log.error("登录失败: " .. msg)
             end
         end
 
-        -- 等待下次检测
         os.execute("sleep " .. config.interval)
     end
 end
 
--- 运行
 main()

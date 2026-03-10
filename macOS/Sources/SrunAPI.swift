@@ -93,11 +93,11 @@ class SrunAPI {
         httpClient.get(url: url) { result in
             switch result {
             case .success(let responseStr):
-                Logger.log("状态响应: \(responseStr)")
+                Logger.debug("状态响应: \(responseStr)")
                 let status = self.parseStatusResponse(responseStr, callback: callback)
                 completion(status)
             case .failure(let error):
-                Logger.log("状态检查失败: \(error.localizedDescription)")
+                Logger.warn("状态检查失败: \(error.localizedDescription)")
                 completion(.offline)
             }
         }
@@ -191,10 +191,9 @@ class SrunAPI {
         let encryptedUsername = SrunEncryption.encryptUsername(username)
         let encryptedPassword = SrunEncryption.encryptPassword(password)
 
-        Logger.log("原始用户名: \(username)")
-        Logger.log("加密用户名: \(encryptedUsername)")
-        Logger.log("原始密码: \(password)")
-        Logger.log("加密密码: \(encryptedPassword)")
+        Logger.info("原始用户名: \(username)")
+        Logger.debug("加密用户名: \(encryptedUsername)")
+        Logger.debug("加密密码: (len=\(encryptedPassword.count))")
 
         let params: [String: String] = [
             "action": "login",
@@ -217,14 +216,8 @@ class SrunAPI {
 
     /// 执行注销
     func logout(completion: @escaping (LoginResult) -> Void) {
-        let encryptedUsername = SrunEncryption.encryptUsername(username)
-
         let params: [String: String] = [
-            "action": "logout",
-            "username": encryptedUsername,
-            "ac_id": SrunAPI.acId,
-            "mac": "",
-            "type": "2"
+            "action": "logout"
         ]
 
         sendRequest(params: params) { result in
@@ -238,18 +231,18 @@ class SrunAPI {
         let bodyString = params.map { "\($0.key)=\($0.value.urlEncoded)" }
                                .joined(separator: "&")
 
-        Logger.log("发送请求: \(SrunAPI.loginURL)")
-        Logger.log("操作: \(params["action"] ?? "")")
-        Logger.log("请求体: \(bodyString)")
+        Logger.info("发送请求: \(SrunAPI.loginURL)")
+        Logger.debug("操作: \(params["action"] ?? "")")
+        Logger.debug("请求体: \(bodyString)")
 
         httpClient.post(url: SrunAPI.loginURL, body: bodyString) { result in
             switch result {
             case .success(let responseStr):
-                Logger.log("响应: \(responseStr)")
+                Logger.info("响应: \(responseStr)")
                 let loginResult = self.parseLoginResponse(responseStr)
                 completion(loginResult)
             case .failure(let error):
-                Logger.log("请求失败: \(error.localizedDescription)")
+                Logger.error("请求失败: \(error.localizedDescription)")
                 completion(.failed(error.localizedDescription))
             }
         }
@@ -281,13 +274,83 @@ extension String {
 
 // MARK: - 日志工具
 struct Logger {
-    static var isEnabled = true
+    enum Level: Int, Comparable {
+        case debug = 0, info, warn, error
 
-    static func log(_ message: String) {
-        guard isEnabled else { return }
+        var label: String {
+            switch self {
+            case .debug: return "DEBUG"
+            case .info:  return "INFO"
+            case .warn:  return "WARN"
+            case .error: return "ERROR"
+            }
+        }
+
+        static func < (lhs: Level, rhs: Level) -> Bool {
+            lhs.rawValue < rhs.rawValue
+        }
+    }
+
+    static var isEnabled = true
+    static var minLevel: Level = .debug
+
+    private static let maxFileSize: UInt64 = 1_048_576 // 1MB
+
+    private static var logDirectory: String {
+        let home = NSHomeDirectory()
+        return "\(home)/Library/Logs/HAUTNetworkGuard"
+    }
+
+    private static var logFilePath: String {
+        return "\(logDirectory)/app.log"
+    }
+
+    private static func writeToFile(_ line: String) {
+        let dir = logDirectory
+        let path = logFilePath
+        let fm = FileManager.default
+
+        if !fm.fileExists(atPath: dir) {
+            try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        }
+
+        // 轮转
+        if let attrs = try? fm.attributesOfItem(atPath: path),
+           let size = attrs[.size] as? UInt64,
+           size > maxFileSize {
+            let oldPath = path + ".old"
+            try? fm.removeItem(atPath: oldPath)
+            try? fm.moveItem(atPath: path, toPath: oldPath)
+        }
+
+        if !fm.fileExists(atPath: path) {
+            fm.createFile(atPath: path, contents: nil)
+        }
+
+        if let handle = FileHandle(forWritingAtPath: path) {
+            handle.seekToEndOfFile()
+            if let data = (line + "\n").data(using: .utf8) {
+                handle.write(data)
+            }
+            handle.closeFile()
+        }
+    }
+
+    private static func log(_ level: Level, _ message: String) {
+        guard isEnabled, level >= minLevel else { return }
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
         let timestamp = formatter.string(from: Date())
-        print("[\(timestamp)] \(message)")
+        let line = "[\(timestamp)] [\(level.label)] \(message)"
+        print(line)
+        writeToFile(line)
     }
+
+    static func debug(_ message: String) { log(.debug, message) }
+    static func info(_ message: String)  { log(.info, message) }
+    static func warn(_ message: String)  { log(.warn, message) }
+    static func error(_ message: String) { log(.error, message) }
+
+    /// 兼容旧调用
+    static func log(_ message: String) { info(message) }
 }

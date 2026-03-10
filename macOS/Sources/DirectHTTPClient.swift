@@ -29,16 +29,16 @@ class DirectHTTPClient {
         let interfaces = path.availableInterfaces
         if let wired = interfaces.first(where: { $0.type == .wiredEthernet }) {
             interfaceName = wired.name
-            Logger.log("[DirectHTTP] 使用有线接口: \(wired.name)")
+            Logger.info("[DirectHTTP] 使用有线接口: \(wired.name)")
         } else if let wifi = interfaces.first(where: { $0.type == .wifi }) {
             interfaceName = wifi.name
-            Logger.log("[DirectHTTP] 使用 WiFi 接口: \(wifi.name)")
+            Logger.info("[DirectHTTP] 使用 WiFi 接口: \(wifi.name)")
         } else {
             interfaceName = interfaces.first?.name
             if let name = interfaceName {
-                Logger.log("[DirectHTTP] 使用接口: \(name)")
+                Logger.info("[DirectHTTP] 使用接口: \(name)")
             } else {
-                Logger.log("[DirectHTTP] 未找到可用物理接口")
+                Logger.warn("[DirectHTTP] 未找到可用物理接口")
             }
         }
     }
@@ -106,9 +106,9 @@ class DirectHTTPClient {
                     let ret = setsockopt(fd, IPPROTO_IP, IP_BOUND_IF,
                                          &idx, socklen_t(MemoryLayout<UInt32>.size))
                     if ret == 0 {
-                        Logger.log("[DirectHTTP] 绑定接口: \(ifName) (index=\(ifIndex))")
+                        Logger.debug("[DirectHTTP] 绑定接口: \(ifName) (index=\(ifIndex))")
                     } else {
-                        Logger.log("[DirectHTTP] 绑定接口失败: \(ifName), errno=\(errno)")
+                        Logger.warn("[DirectHTTP] 绑定接口失败: \(ifName), errno=\(errno)")
                     }
                 }
             }

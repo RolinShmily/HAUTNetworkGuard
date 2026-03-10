@@ -1,5 +1,7 @@
 #include "api.h"
 #include "encryption.h"
+#include "logger.h"
+#include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
@@ -15,52 +17,70 @@ Api::Api(QObject *parent)
 
 Api::~Api() {}
 
+QString Api::percentEncode(const QString &value) {
+  QByteArray utf8 = value.toUtf8();
+  QString result;
+  for (int i = 0; i < utf8.size(); ++i) {
+    unsigned char c = static_cast<unsigned char>(utf8[i]);
+    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+        (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' ||
+        c == '~') {
+      result.append(QChar(c));
+    } else {
+      result.append(QString("%%1").arg(c, 2, 16, QChar('0')).toUpper());
+    }
+  }
+  return result;
+}
+
 void Api::login(const QString &username, const QString &password) {
-  // 加密用户名和密码
   QString encUsername = Encryption::encryptUsername(username);
   QString encPassword = Encryption::encryptPassword(password);
 
-  // 构建 POST 请求体 (与 Rust 版本一致)
-  QUrlQuery postData;
-  postData.addQueryItem("action", "login");
-  postData.addQueryItem("username", encUsername);
-  postData.addQueryItem("password", encPassword);
-  postData.addQueryItem("ac_id", "1");
-  postData.addQueryItem("drop", "0");
-  postData.addQueryItem("pop", "1");
-  postData.addQueryItem("type", "10");
-  postData.addQueryItem("n", "117");
-  postData.addQueryItem("mbytes", "0");
-  postData.addQueryItem("minutes", "0");
-  postData.addQueryItem("mac", "02:00:00:00:00:00");
+  // 手动拼接 POST body，使用自定义 percentEncode 确保特殊字符被正确编码
+  QString body = "action=login"
+                 "&username=" +
+                 percentEncode(encUsername) + "&password=" +
+                 percentEncode(encPassword) + "&ac_id=1"
+                                              "&drop=0"
+                                              "&pop=1"
+                                              "&type=10"
+                                              "&n=117"
+                                              "&mbytes=0"
+                                              "&minutes=0"
+                                              "&mac=02%3A00%3A00%3A00%3A00%3A00";
 
   QUrl loginUrl(LOGIN_URL);
   QNetworkRequest request(loginUrl);
   request.setHeader(QNetworkRequest::ContentTypeHeader,
                     "application/x-www-form-urlencoded");
   request.setHeader(QNetworkRequest::UserAgentHeader,
-                    "HAUTNetworkGuard/1.3.8 Qt");
+                    "HAUTNetworkGuard/1.3.9 Qt");
   request.setTransferTimeout(10000);
 
-  QNetworkReply *reply = m_networkManager->post(
-      request, postData.toString(QUrl::FullyEncoded).toUtf8());
+  Logger::info(QString("登录请求: %1").arg(LOGIN_URL));
+  Logger::debug(QString("POST body: %1").arg(body));
+
+  QNetworkReply *reply =
+      m_networkManager->post(request, body.toUtf8());
   connect(reply, &QNetworkReply::finished, this, &Api::onLoginReplyFinished);
 }
 
 void Api::logout() {
-  QUrlQuery postData;
-  postData.addQueryItem("action", "logout");
+  QString body = "action=logout";
 
   QUrl logoutUrl(LOGIN_URL);
   QNetworkRequest request(logoutUrl);
   request.setHeader(QNetworkRequest::ContentTypeHeader,
                     "application/x-www-form-urlencoded");
   request.setHeader(QNetworkRequest::UserAgentHeader,
-                    "HAUTNetworkGuard/1.3.8 Qt");
+                    "HAUTNetworkGuard/1.3.9 Qt");
   request.setTransferTimeout(10000);
 
-  QNetworkReply *reply = m_networkManager->post(
-      request, postData.toString(QUrl::FullyEncoded).toUtf8());
+  Logger::info(QString("注销请求: %1").arg(LOGIN_URL));
+
+  QNetworkReply *reply =
+      m_networkManager->post(request, body.toUtf8());
   connect(reply, &QNetworkReply::finished, this, &Api::onLogoutReplyFinished);
 }
 
@@ -77,7 +97,7 @@ void Api::checkStatus() {
 
   QNetworkRequest request(url);
   request.setHeader(QNetworkRequest::UserAgentHeader,
-                    "HAUTNetworkGuard/1.3.8 Qt");
+                    "HAUTNetworkGuard/1.3.9 Qt");
   request.setTransferTimeout(5000);
 
   QNetworkReply *reply = m_networkManager->get(request);
@@ -92,11 +112,13 @@ void Api::onLoginReplyFinished() {
   reply->deleteLater();
 
   if (reply->error() != QNetworkReply::NoError) {
+    Logger::error(QString("登录网络错误: %1").arg(reply->errorString()));
     emit loginFailed(QString("网络错误: %1").arg(reply->errorString()));
     return;
   }
 
   QString response = QString::fromUtf8(reply->readAll());
+  Logger::info(QString("登录响应: %1").arg(response));
 
   // 检查登录结果 (与 Rust 版本一致)
   if (response.contains("login_ok") || response.contains("already_online")) {
@@ -127,11 +149,13 @@ void Api::onLogoutReplyFinished() {
   reply->deleteLater();
 
   if (reply->error() != QNetworkReply::NoError) {
+    Logger::error(QString("注销网络错误: %1").arg(reply->errorString()));
     emit logoutFailed(QString("网络错误: %1").arg(reply->errorString()));
     return;
   }
 
   QString response = QString::fromUtf8(reply->readAll());
+  Logger::info(QString("注销响应: %1").arg(response));
 
   // 与 Rust 版本一致
   if (response.contains("logout_ok") || response.contains("not_online")) {

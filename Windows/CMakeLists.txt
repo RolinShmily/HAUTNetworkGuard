@@ -18,6 +18,7 @@ set(SOURCES
     src/api.cpp
     src/encryption.cpp
     src/trayicon.cpp
+    src/logger.cpp
 )
 
 # 头文件
@@ -27,6 +28,7 @@ set(HEADERS
     src/api.h
     src/encryption.h
     src/trayicon.h
+    src/logger.h
 )
 
 # 资源文件

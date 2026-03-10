@@ -1,40 +1,27 @@
 #!/usr/bin/lua
 -- HAUT Network Guard - API 模块
--- 处理网络请求和认证
+-- SRUN3K 协议 (与 macOS/Windows 一致)
 
 local api = {}
 local crypto = require("crypto")
+local log = require("log")
 
 -- 配置
 api.BASE_URL = "http://172.16.154.130"
-api.AC_ID = "1"
+api.LOGIN_URL = "http://172.16.154.130:69/cgi-bin/srun_portal"
 
--- URL 编码
+-- URL 编码: 仅允许 [A-Za-z0-9-._~] 不编码
 local function url_encode(str)
-    if str then
-        str = string.gsub(str, "\n", "\r\n")
-        str = string.gsub(str, "([^%w%-%.%_%~ ])", function(c)
-            return string.format("%%%02X", string.byte(c))
-        end)
-        str = string.gsub(str, " ", "+")
-    end
-    return str
+    if not str then return "" end
+    return string.gsub(str, "([^%w%-%.%_%~])", function(c)
+        return string.format("%%%02X", string.byte(c))
+    end)
 end
 
 -- 生成 jQuery 回调名
 local function gen_callback()
     local timestamp = os.time() * 1000 + math.random(0, 999)
-    return "jQuery112404" .. tostring(timestamp), timestamp
-end
-
--- 解析 JSONP 响应
-local function parse_jsonp(response, callback)
-    local json_str = response:match(callback .. "%((.+)%)$")
-    if json_str then
-        -- 简单的 JSON 解析
-        return json_str
-    end
-    return nil
+    return "jQuery_" .. tostring(timestamp), timestamp
 end
 
 -- HTTP GET 请求
@@ -46,100 +33,71 @@ local function http_get(url)
     return result
 end
 
--- 获取 Challenge (token)
-function api.get_challenge(username)
-    local callback, timestamp = gen_callback()
-    local url = string.format(
-        "%s/cgi-bin/get_challenge?callback=%s&username=%s&_=%.0f",
-        api.BASE_URL, callback, url_encode(username), math.floor(timestamp)
-    )
-
-    local response = http_get(url)
-    if not response or response == "" then
-        return nil, "网络请求失败"
-    end
-
-    -- 解析响应
-    local challenge = response:match('"challenge":%s?"([^"]+)"')
-    local client_ip = response:match('"client_ip":%s?"([^"]+)"')
-    local error_msg = response:match('"error":%s?"([^"]+)"')
-
-    if error_msg and error_msg ~= "ok" then
-        return nil, error_msg
-    end
-
-    if challenge and client_ip then
-        return {
-            token = challenge,
-            ip = client_ip
-        }
-    end
-
-    return nil, "解析响应失败"
+-- HTTP POST 请求
+local function http_post(url, body)
+    local cmd = string.format("curl -s --connect-timeout 5 -d '%s' '%s'",
+        body:gsub("'", "'\\''"), url)
+    local handle = io.popen(cmd)
+    local result = handle:read("*a")
+    handle:close()
+    return result
 end
 
--- 发送登录请求
+-- 发送登录请求 (SRUN3K POST 协议，无 IP 参数)
 function api.login(username, password)
-    -- 1. 获取 challenge
-    local challenge, err = api.get_challenge(username)
-    if not challenge then
-        return false, err or "获取 token 失败"
-    end
+    local enc_username = crypto.encrypt_username(username)
+    local enc_password = crypto.encrypt_password(password)
 
-    local token = challenge.token
-    local ip = challenge.ip
+    local body = "action=login"
+        .. "&username=" .. url_encode(enc_username)
+        .. "&password=" .. url_encode(enc_password)
+        .. "&ac_id=1&drop=0&pop=1&type=10&n=117&mbytes=0&minutes=0"
+        .. "&mac=02%3A00%3A00%3A00%3A00%3A00"
 
-    -- 2. 加密密码
-    local hmd5_password = crypto.encrypt_password(password, token)
+    log.info("登录请求: " .. api.LOGIN_URL)
+    log.debug("POST body: " .. body)
 
-    -- 3. 生成加密信息
-    local info = crypto.gen_info(token, username, password, ip, api.AC_ID)
-
-    -- 4. 生成校验和
-    local chksum = crypto.gen_chksum(
-        token, username, hmd5_password,
-        api.AC_ID, ip, "200", "1", info
-    )
-
-    -- 5. 构建请求
-    local callback, timestamp = gen_callback()
-    local params = {
-        "callback=" .. callback,
-        "action=login",
-        "username=" .. url_encode(username),
-        "password=%7BMD5%7D" .. hmd5_password,
-        "ac_id=" .. api.AC_ID,
-        "ip=" .. url_encode(ip),
-        "chksum=" .. chksum,
-        "info=" .. url_encode(info),
-        "n=200",
-        "type=1",
-        "os=Linux",
-        "name=OpenWrt",
-        "double_stack=0",
-        "_=" .. string.format("%.0f", math.floor(timestamp))
-    }
-
-    local url = api.BASE_URL .. "/cgi-bin/srun_portal?" .. table.concat(params, "&")
-    local response = http_get(url)
+    local response = http_post(api.LOGIN_URL, body)
 
     if not response or response == "" then
+        log.error("登录请求无响应")
         return false, "登录请求失败"
     end
 
-    -- 解析响应
-    local error_code = response:match('"error":"([^"]+)"')
-    if error_code == "ok" then
+    log.info("登录响应: " .. response)
+
+    if response:find("login_ok") then
         return true, "登录成功"
-    elseif error_code == "ip_already_online_error" then
+    elseif response:find("already_online") then
         return true, "已在线"
     else
-        local error_msg = response:match('"error_msg":"([^"]+)"') or error_code
-        return false, error_msg or "登录失败"
+        return false, response
     end
 end
 
--- 获取用户信息
+-- 发送注销请求
+function api.logout()
+    local body = "action=logout"
+
+    log.info("注销请求: " .. api.LOGIN_URL)
+
+    local response = http_post(api.LOGIN_URL, body)
+
+    if not response or response == "" then
+        log.error("注销请求无响应")
+        return false, "注销请求失败"
+    end
+
+    log.info("注销响应: " .. response)
+
+    if response:find("logout_ok") or response:find("not_online") then
+        return true, "注销成功"
+    else
+        return false, response
+    end
+end
+
+-- 获取用户信息 (保持不变，GET rad_user_info)
 function api.get_user_info()
     local callback, timestamp = gen_callback()
     local url = string.format(
@@ -156,7 +114,6 @@ function api.get_user_info()
         return nil
     end
 
-    -- 解析用户信息
     local username = response:match('"user_name":"([^"]+)"')
     local sum_bytes = response:match('"sum_bytes":(%d+)')
     local sum_seconds = response:match('"sum_seconds":(%d+)')

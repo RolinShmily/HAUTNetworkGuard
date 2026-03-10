@@ -14,7 +14,7 @@ fi
 # 安装依赖
 echo "[1/5] 安装依赖..."
 opkg update >/dev/null 2>&1 || true
-opkg install lua curl openssl-util >/dev/null 2>&1 || {
+opkg install lua curl >/dev/null 2>&1 || {
     echo "警告: 部分依赖可能已安装"
 }
 
@@ -39,7 +39,7 @@ echo "[5/5] 启用服务..."
 
 echo ""
 echo "=========================================="
-echo "  安装完成! (v1.3.8)"
+echo "  安装完成! (v1.3.9)"
 echo "=========================================="
 echo ""
 echo "配置方法:"

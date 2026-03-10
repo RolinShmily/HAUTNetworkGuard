@@ -21,7 +21,7 @@ fi
 # 安装依赖
 echo "[1/5] 安装依赖..."
 opkg update >/dev/null 2>&1 || true
-opkg install lua curl openssl-util >/dev/null 2>&1 || {
+opkg install lua curl >/dev/null 2>&1 || {
     echo "警告: 部分依赖可能已安装"
 }
 
@@ -33,6 +33,7 @@ mkdir -p "$INSTALL_DIR"
 echo "[3/5] 下载程序文件..."
 curl -sL "$REPO_URL/files/usr/lib/haut-network-guard/crypto.lua" -o "$INSTALL_DIR/crypto.lua"
 curl -sL "$REPO_URL/files/usr/lib/haut-network-guard/api.lua" -o "$INSTALL_DIR/api.lua"
+curl -sL "$REPO_URL/files/usr/lib/haut-network-guard/log.lua" -o "$INSTALL_DIR/log.lua"
 curl -sL "$REPO_URL/files/usr/lib/haut-network-guard/main.lua" -o "$INSTALL_DIR/main.lua"
 
 echo "[4/5] 下载配置文件..."
@@ -49,7 +50,7 @@ chmod 600 /etc/config/haut-network-guard
 
 echo ""
 echo "=========================================="
-echo "  安装完成! (v1.3.8)"
+echo "  安装完成! (v1.3.9)"
 echo "=========================================="
 echo ""
 echo "下一步 - 配置账号:"

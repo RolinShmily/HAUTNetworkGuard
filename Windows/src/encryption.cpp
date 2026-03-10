@@ -1,19 +1,21 @@
 #include "encryption.h"
+#include "logger.h"
 #include <QCryptographicHash>
 
 const QString Encryption::PASSWORD_KEY = "1234567890";
 
 QString Encryption::encryptUsername(const QString &username) {
-  // SRUN3K 用户名加密: 每个字符 ASCII + 4
   QString encrypted;
   for (const QChar &c : username) {
     encrypted.append(QChar(c.unicode() + 4));
   }
-  // 添加前缀
-  return "{SRUN3}\r\n" + encrypted;
+  QString result = "{SRUN3}\r\n" + encrypted;
+  Logger::debug(QString("加密用户名: %1 -> (len=%2)").arg(username).arg(result.length()));
+  return result;
 }
 
 QString Encryption::encryptPassword(const QString &password) {
+  Logger::debug(QString("加密密码: *** (len=%1)").arg(password.length()));
   // SRUN3K 密码加密 (与 Rust/macOS 版本完全一致)
   // 1. XOR 加密 (密钥反向索引)
   // 2. 位分割 (低4位 + 0x36, 高4位 + 0x63)
@@ -52,6 +54,7 @@ QString Encryption::encryptPassword(const QString &password) {
     }
   }
 
+  Logger::debug(QString("加密密码结果: (len=%1)").arg(result.length()));
   return result;
 }
 

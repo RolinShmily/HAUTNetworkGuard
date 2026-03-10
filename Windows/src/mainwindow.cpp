@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "config.h"
+#include "logger.h"
 #include <QApplication>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -8,7 +9,7 @@
 #include <QVBoxLayout>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
-  setWindowTitle("HAUT Network Guard v1.3.8");
+  setWindowTitle("HAUT Network Guard v1.3.9");
   setFixedSize(400, 550);
 
   setupUi();
@@ -202,6 +203,7 @@ void MainWindow::onLoginClicked() {
   m_loginBtn->setEnabled(false);
   m_loginBtn->setText("登录中...");
 
+  Logger::info(QString("手动登录: %1").arg(username));
   m_api->login(username, password);
 }
 
@@ -225,6 +227,7 @@ void MainWindow::onLoginSuccess(const QString &message) {
   m_loginBtn->setEnabled(true);
   m_loginBtn->setText("登录");
 
+  Logger::info(QString("登录成功: %1").arg(message));
   m_trayIcon->showMessage("登录成功", message);
   m_isManualLogin = false;
   checkNetworkStatus();
@@ -235,6 +238,7 @@ void MainWindow::onLoginFailed(const QString &error) {
   m_loginBtn->setEnabled(true);
   m_loginBtn->setText("登录");
 
+  Logger::warn(QString("登录失败: %1").arg(error));
   m_trayIcon->showMessage("登录失败", error, QSystemTrayIcon::Warning);
   // 只有手动登录失败才弹模态对话框，自动登录失败仅显示托盘通知
   if (m_isManualLogin) {
@@ -274,6 +278,7 @@ void MainWindow::onStatusChecked(bool online, const QString &ip,
     QString password = Config::instance().password();
 
     if (!username.isEmpty() && !password.isEmpty()) {
+      Logger::info("掉线重连触发");
       m_isLoggingIn = true;
       m_isManualLogin = false;
       m_api->login(username, password);
@@ -291,6 +296,7 @@ void MainWindow::tryAutoLogin() {
     QString password = Config::instance().password();
 
     if (!username.isEmpty() && !password.isEmpty()) {
+      Logger::info("启动自动登录触发");
       m_isLoggingIn = true;
       m_isManualLogin = false;
       m_api->login(username, password);
