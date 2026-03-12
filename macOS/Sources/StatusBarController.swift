@@ -20,6 +20,8 @@ class StatusBarController: NSObject {
 
     // 更新窗口引用
     private var updateWindowController: UpdateWindowController?
+    // 需要持有设置窗口控制器，否则会被提前释放导致控件动作失效
+    private var settingsWindowController: SettingsWindowController?
 
     override init() {
         super.init()
@@ -291,9 +293,9 @@ extension StatusBarController {
     }
 
     @objc private func settingsAction() {
-        let controller = SettingsWindowController()
-        controller.showWindow(nil)
-        controller.window?.makeKeyAndOrderFront(nil)
+        settingsWindowController = SettingsWindowController()
+        settingsWindowController?.showWindow(nil)
+        settingsWindowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 

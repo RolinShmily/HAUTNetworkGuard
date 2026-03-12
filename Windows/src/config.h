@@ -31,7 +31,7 @@ public:
   // 检测间隔 (秒)
   int checkInterval() const { return m_checkInterval; }
   void setCheckInterval(int seconds) {
-    m_checkInterval = qBound(5, seconds, 300);
+    m_checkInterval = qBound(30, seconds, 300);
   }
 
   // 自动登录
@@ -54,7 +54,7 @@ private:
   bool m_autoSave = false;
   bool m_autoLaunch = false;
   bool m_hasConfigured = false;
-  int m_checkInterval = 30; // 默认 30 秒
+  int m_checkInterval = 30; // 默认 30 秒，最小 30 秒避免请求过于频繁
   bool m_autoLogin = true;  // 默认开启自动登录
 };
 

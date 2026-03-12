@@ -25,7 +25,7 @@ void Config::load() {
   m_checkInterval = settings.value("check_interval", 30).toInt();
   m_autoLogin = settings.value("auto_login", true).toBool();
 
-  m_checkInterval = qBound(5, m_checkInterval, 300);
+  m_checkInterval = qBound(30, m_checkInterval, 300);
 
   Logger::info(QString("配置已加载 (用户: %1, 间隔: %2s)").arg(m_username).arg(m_checkInterval));
 }

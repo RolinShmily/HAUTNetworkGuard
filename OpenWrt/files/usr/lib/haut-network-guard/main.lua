@@ -2,7 +2,7 @@
 -- HAUT Network Guard - OpenWrt 版本
 -- 主程序入口
 
-local VERSION = "1.3.9"
+local VERSION = "1.3.10"
 
 package.path = package.path .. ";/usr/lib/haut-network-guard/?.lua"
 
@@ -41,6 +41,13 @@ local function read_config()
     if handle then
         config.interval = tonumber(handle:read("*l")) or 30
         handle:close()
+    end
+
+    -- 限制检测间隔，避免请求过于频繁导致风控
+    if config.interval < 30 then
+        config.interval = 30
+    elseif config.interval > 300 then
+        config.interval = 300
     end
 
     return config

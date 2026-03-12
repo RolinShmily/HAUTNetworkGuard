@@ -9,7 +9,7 @@
 #include <QVBoxLayout>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
-  setWindowTitle("HAUT Network Guard v1.3.9");
+  setWindowTitle("HAUT Network Guard v1.3.10");
   setFixedSize(400, 550);
 
   setupUi();
@@ -109,9 +109,9 @@ void MainWindow::setupUi() {
   // 检测间隔设置
   QHBoxLayout *intervalLayout = new QHBoxLayout();
   m_intervalSpinBox = new QSpinBox();
-  m_intervalSpinBox->setRange(5, 300);
+  m_intervalSpinBox->setRange(30, 300);
   m_intervalSpinBox->setSuffix(" 秒");
-  m_intervalSpinBox->setToolTip("网络状态检测间隔 (5-300 秒)");
+  m_intervalSpinBox->setToolTip("网络状态检测间隔 (30-300 秒)");
   intervalLayout->addWidget(m_intervalSpinBox);
   intervalLayout->addStretch();
   accountLayout->addRow("检测间隔:", intervalLayout);

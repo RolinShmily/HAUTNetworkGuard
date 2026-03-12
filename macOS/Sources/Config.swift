@@ -6,7 +6,7 @@ class AppConfig {
 
     // 应用信息
     static let appName = "HAUT Network Guard"
-    static let version = "1.3.9"
+    static let version = "1.3.10"
     static let author = "YellowPeach"
     static let website = "https://github.com/yellowpeachxgp/HAUTNetworkGuard"
     static let qqGroup = "789860526"
@@ -49,10 +49,10 @@ class AppConfig {
     var checkInterval: Int {
         get {
             let value = UserDefaults.standard.integer(forKey: checkIntervalKey)
-            return value > 0 ? max(5, min(300, value)) : 30
+            return value > 0 ? max(30, min(300, value)) : 30
         }
         set {
-            UserDefaults.standard.set(max(5, min(300, newValue)), forKey: checkIntervalKey)
+            UserDefaults.standard.set(max(30, min(300, newValue)), forKey: checkIntervalKey)
         }
     }
     

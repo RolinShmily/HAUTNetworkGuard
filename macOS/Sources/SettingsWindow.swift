@@ -84,7 +84,7 @@ class SettingsWindowController: NSWindowController {
         contentView.addSubview(intervalTitleLabel)
         
         intervalSlider = NSSlider(value: Double(AppConfig.shared.checkInterval),
-                                   minValue: 5, maxValue: 300,
+                                   minValue: 30, maxValue: 300,
                                    target: self, action: #selector(intervalChanged))
         intervalSlider.frame = NSRect(x: 90, y: 180, width: 200, height: 20)
         contentView.addSubview(intervalSlider)
