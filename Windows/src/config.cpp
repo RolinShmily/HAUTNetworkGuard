@@ -27,6 +27,11 @@ void Config::load() {
 
   m_checkInterval = qBound(30, m_checkInterval, 300);
 
+  // 兼容旧版本：自动修正开机自启命令，确保使用静默启动参数
+  if (m_autoLaunch) {
+    updateAutoLaunchRegistry(true);
+  }
+
   Logger::info(QString("配置已加载 (用户: %1, 间隔: %2s)").arg(m_username).arg(m_checkInterval));
 }
 
@@ -88,7 +93,8 @@ void Config::updateAutoLaunchRegistry(bool enable) {
   if (enable) {
     QString appPath =
         QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
-    bootSettings.setValue("HAUTNetworkGuard", QString("\"%1\"").arg(appPath));
+    bootSettings.setValue("HAUTNetworkGuard",
+                          QString("\"%1\" --startup").arg(appPath));
   } else {
     bootSettings.remove("HAUTNetworkGuard");
   }
