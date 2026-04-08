@@ -55,11 +55,16 @@ void Api::login(const QString &username, const QString &password) {
   request.setHeader(QNetworkRequest::ContentTypeHeader,
                     "application/x-www-form-urlencoded");
   request.setHeader(QNetworkRequest::UserAgentHeader,
-                    "HAUTNetworkGuard/1.3.11 Qt");
+                    "HAUTNetworkGuard/1.3.12 Qt");
   request.setTransferTimeout(10000);
 
   Logger::info(QString("登录请求: %1").arg(LOGIN_URL));
-  Logger::debug(QString("POST body: %1").arg(body));
+  Logger::debug(QString("登录参数摘要: 用户=%1, 用户名长度=%2, 密码长度=%3, body=%4 bytes")
+                    .arg(username.left(2) + "***")
+                    .arg(username.length())
+                    .arg(password.length())
+                    .arg(body.toUtf8().size()));
+  Logger::debug(QString("POST body: %1").arg(body.left(200)));
 
   QNetworkReply *reply =
       m_networkManager->post(request, body.toUtf8());
@@ -74,10 +79,11 @@ void Api::logout() {
   request.setHeader(QNetworkRequest::ContentTypeHeader,
                     "application/x-www-form-urlencoded");
   request.setHeader(QNetworkRequest::UserAgentHeader,
-                    "HAUTNetworkGuard/1.3.11 Qt");
+                    "HAUTNetworkGuard/1.3.12 Qt");
   request.setTransferTimeout(10000);
 
   Logger::info(QString("注销请求: %1").arg(LOGIN_URL));
+  Logger::debug(QString("注销请求体长度: %1 bytes").arg(body.toUtf8().size()));
 
   QNetworkReply *reply =
       m_networkManager->post(request, body.toUtf8());
@@ -97,8 +103,9 @@ void Api::checkStatus() {
 
   QNetworkRequest request(url);
   request.setHeader(QNetworkRequest::UserAgentHeader,
-                    "HAUTNetworkGuard/1.3.11 Qt");
+                    "HAUTNetworkGuard/1.3.12 Qt");
   request.setTransferTimeout(5000);
+  Logger::debug(QString("状态请求: %1").arg(url.toString()));
 
   QNetworkReply *reply = m_networkManager->get(request);
   connect(reply, &QNetworkReply::finished, this, &Api::onStatusReplyFinished);
@@ -119,6 +126,7 @@ void Api::onLoginReplyFinished() {
 
   QString response = QString::fromUtf8(reply->readAll());
   Logger::info(QString("登录响应: %1").arg(response));
+  Logger::debug(QString("登录响应长度: %1 bytes").arg(response.toUtf8().size()));
 
   // 检查登录结果 (与 Rust 版本一致)
   if (response.contains("login_ok") || response.contains("already_online")) {
@@ -156,6 +164,7 @@ void Api::onLogoutReplyFinished() {
 
   QString response = QString::fromUtf8(reply->readAll());
   Logger::info(QString("注销响应: %1").arg(response));
+  Logger::debug(QString("注销响应长度: %1 bytes").arg(response.toUtf8().size()));
 
   // 与 Rust 版本一致
   if (response.contains("logout_ok") || response.contains("not_online")) {
@@ -173,14 +182,19 @@ void Api::onStatusReplyFinished() {
   reply->deleteLater();
 
   if (reply->error() != QNetworkReply::NoError) {
+    Logger::warn(QString("状态请求失败: %1").arg(reply->errorString()));
     emit statusChecked(false, "", 0, 0);
     return;
   }
 
   QString response = QString::fromUtf8(reply->readAll());
+  Logger::debug(QString("状态响应长度: %1 bytes, 预览: %2")
+                    .arg(response.toUtf8().size())
+                    .arg(response.left(160)));
 
   // 如果响应为空或包含 "not_online"，则离线
   if (response.isEmpty() || response.contains("not_online")) {
+    Logger::debug("状态响应判定为离线");
     emit statusChecked(false, "", 0, 0);
     return;
   }
@@ -207,6 +221,7 @@ void Api::onStatusReplyFinished() {
     // 检查 error 字段
     QString error = obj.value("error").toString();
     if (error == "not_online_error" || error.contains("not_online")) {
+      Logger::debug("JSON 状态响应包含 not_online");
       emit statusChecked(false, "", 0, 0);
       return;
     }
@@ -218,6 +233,10 @@ void Api::onStatusReplyFinished() {
     QString username = obj.value("user_name").toString();
 
     if (!username.isEmpty() || !ip.isEmpty()) {
+      Logger::debug(QString("JSON 状态解析成功: user=%1 ip=%2 bytes=%3 seconds=%4")
+                        .arg(username, ip)
+                        .arg(bytes)
+                        .arg(seconds));
       emit statusChecked(true, ip, bytes, seconds);
       return;
     }
@@ -231,8 +250,13 @@ void Api::onStatusReplyFinished() {
     QString ip = parts[2];
     qint64 bytes = parts[3].toLongLong();
 
+    Logger::debug(QString("CSV 状态解析成功: user=%1 ip=%2 bytes=%3 seconds=%4")
+                      .arg(username, ip)
+                      .arg(bytes)
+                      .arg(seconds));
     emit statusChecked(true, ip, bytes, seconds);
   } else {
+    Logger::warn("状态响应无法解析，回退为离线");
     emit statusChecked(false, "", 0, 0);
   }
 }

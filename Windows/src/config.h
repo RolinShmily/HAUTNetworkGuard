@@ -47,7 +47,16 @@ private:
   QString decodePassword(const QString &encoded);
 
   // 设置开机自启动
-  void updateAutoLaunchRegistry(bool enable);
+  void updateAutoLaunch(bool enable);
+  void updateAutoLaunchRegistry(bool enable, const QString &command);
+  void updateAutoLaunchStartupScript(bool enable, const QString &command);
+  void verifyAndRepairAutoLaunch();
+  bool isRegistryCommandExpected(const QString &command,
+                                 QString *storedValue = nullptr) const;
+  bool isStartupScriptExpected(const QString &command,
+                               QString *scriptPath = nullptr) const;
+  QString autoLaunchCommand() const;
+  QString startupScriptPath() const;
 
   QString m_username;
   QString m_password;

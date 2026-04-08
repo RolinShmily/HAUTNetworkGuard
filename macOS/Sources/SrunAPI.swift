@@ -73,6 +73,20 @@ class SrunAPI {
 
     private let httpClient = DirectHTTPClient(timeout: 10)
 
+    private func mask(_ value: String) -> String {
+        guard value.count > 4 else { return String(repeating: "*", count: value.count) }
+        return String(value.prefix(2)) + String(repeating: "*", count: max(0, value.count - 4)) + String(value.suffix(2))
+    }
+
+    private func preview(_ value: String, limit: Int = 160) -> String {
+        let normalized = value.replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\n", with: "\\n")
+        if normalized.count > limit {
+            return String(normalized.prefix(limit)) + "...(\(normalized.count) chars)"
+        }
+        return normalized
+    }
+
     /// 检查网络状态 (使用 JSONP 格式，与 OpenWrt 一致)
     func checkStatus(completion: @escaping (NetworkStatus) -> Void) {
         // 生成 JSONP callback 参数
@@ -90,11 +104,13 @@ class SrunAPI {
             return
         }
 
+        Logger.debug("开始检查网络状态: \(url)")
         httpClient.get(url: url) { result in
             switch result {
             case .success(let responseStr):
-                Logger.debug("状态响应: \(responseStr)")
+                Logger.debug("状态响应(\(responseStr.utf8.count) bytes): \(self.preview(responseStr))")
                 let status = self.parseStatusResponse(responseStr, callback: callback)
+                Logger.debug("状态解析结果: \(status.description)")
                 completion(status)
             case .failure(let error):
                 Logger.warn("状态检查失败: \(error.localizedDescription)")
@@ -191,9 +207,9 @@ class SrunAPI {
         let encryptedUsername = SrunEncryption.encryptUsername(username)
         let encryptedPassword = SrunEncryption.encryptPassword(password)
 
-        Logger.info("原始用户名: \(username)")
-        Logger.debug("加密用户名: \(encryptedUsername)")
-        Logger.debug("加密密码: (len=\(encryptedPassword.count))")
+        Logger.info("准备登录: 用户=\(mask(username)), 用户名长度=\(username.count), 密码长度=\(password.count)")
+        Logger.debug("加密用户名预览: \(preview(encryptedUsername))")
+        Logger.debug("加密密码长度: \(encryptedPassword.count)")
 
         let params: [String: String] = [
             "action": "login",
@@ -233,12 +249,13 @@ class SrunAPI {
 
         Logger.info("发送请求: \(SrunAPI.loginURL)")
         Logger.debug("操作: \(params["action"] ?? "")")
-        Logger.debug("请求体: \(bodyString)")
+        Logger.debug("请求体(\(bodyString.utf8.count) bytes): \(preview(bodyString))")
 
         httpClient.post(url: SrunAPI.loginURL, body: bodyString) { result in
             switch result {
             case .success(let responseStr):
-                Logger.info("响应: \(responseStr)")
+                Logger.info("响应: \(self.preview(responseStr))")
+                Logger.debug("响应长度: \(responseStr.utf8.count) bytes")
                 let loginResult = self.parseLoginResponse(responseStr)
                 completion(loginResult)
             case .failure(let error):

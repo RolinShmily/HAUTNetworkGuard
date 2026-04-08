@@ -6,7 +6,7 @@ class AppConfig {
 
     // 应用信息
     static let appName = "HAUT Network Guard"
-    static let version = "1.3.11"
+    static let version = "1.3.12"
     static let author = "YellowPeach"
     static let website = "https://github.com/yellowpeachxgp/HAUTNetworkGuard"
     static let qqGroup = "789860526"
@@ -18,6 +18,7 @@ class AppConfig {
     private let hasConfiguredKey = "haut_has_configured"
     private let checkIntervalKey = "haut_check_interval"
     private let autoLoginKey = "haut_auto_login"
+    private var sessionPassword = ""
 
     private init() {}
 
@@ -41,8 +42,14 @@ class AppConfig {
 
     /// 密码
     var password: String {
-        get { UserDefaults.standard.string(forKey: passwordKey) ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: passwordKey) }
+        get {
+            let persisted = UserDefaults.standard.string(forKey: passwordKey) ?? ""
+            return persisted.isEmpty ? sessionPassword : persisted
+        }
+        set {
+            sessionPassword = newValue
+            UserDefaults.standard.set(newValue, forKey: passwordKey)
+        }
     }
     
     /// 检测间隔 (秒), 默认 30 秒
@@ -71,22 +78,32 @@ class AppConfig {
     /// 保存配置
     func save(username: String, password: String, autoSave: Bool, checkInterval: Int = 30, autoLogin: Bool = true) {
         self.username = username
-        self.password = password
         self.autoSave = autoSave
         self.checkInterval = checkInterval
         self.autoLogin = autoLogin
         self.hasConfigured = true
-        Logger.log("配置已保存 (检测间隔: \(checkInterval)秒)")
+        sessionPassword = password
+
+        if autoSave {
+            UserDefaults.standard.set(password, forKey: passwordKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: passwordKey)
+        }
+
+        Logger.info(
+            "配置已保存 (账号: \(Logger.maskUsername(username)), remember_password: \(autoSave), auto_login: \(autoLogin), interval: \(checkInterval)s)"
+        )
     }
 
     /// 清除配置
     func clear() {
+        sessionPassword = ""
         UserDefaults.standard.removeObject(forKey: usernameKey)
         UserDefaults.standard.removeObject(forKey: passwordKey)
         UserDefaults.standard.removeObject(forKey: autoSaveKey)
         UserDefaults.standard.removeObject(forKey: hasConfiguredKey)
         UserDefaults.standard.removeObject(forKey: checkIntervalKey)
         UserDefaults.standard.removeObject(forKey: autoLoginKey)
-        Logger.log("配置已清除")
+        Logger.info("配置已清除")
     }
 }

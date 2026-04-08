@@ -25,6 +25,7 @@ class StatusBarController: NSObject {
 
     override init() {
         super.init()
+        Logger.debug("初始化菜单栏控制器")
         setupStatusItem()
         setupMenu()
         requestNotificationPermission()
@@ -163,6 +164,7 @@ extension StatusBarController {
 // MARK: - 监控逻辑
 extension StatusBarController {
     private func startMonitoring() {
+        Logger.info("开始网络监控，检测间隔: \(Int(checkInterval)) 秒")
         checkStatus()
         checkTimer = Timer.scheduledTimer(
             withTimeInterval: checkInterval,
@@ -173,6 +175,7 @@ extension StatusBarController {
     }
 
     private func checkStatus() {
+        Logger.debug("触发一次网络状态检测")
         api.checkStatus { [weak self] status in
             DispatchQueue.main.async {
                 self?.handleStatusChange(status)
@@ -186,6 +189,7 @@ extension StatusBarController {
     private func handleStatusChange(_ newStatus: NetworkStatus) {
         let wasOnline = currentStatus.isOnline
         currentStatus = newStatus
+        Logger.debug("状态变更: wasOnline=\(wasOnline), now=\(newStatus.description)")
 
         updateUI()
 
@@ -199,6 +203,10 @@ extension StatusBarController {
                 Logger.log("仍处于离线状态，继续尝试登录...")
             }
             performAutoLogin()
+        } else if newStatus.isOnline {
+            Logger.debug("当前在线，无需自动登录")
+        } else {
+            Logger.debug("自动登录已关闭，保持离线状态")
         }
     }
 
@@ -230,6 +238,7 @@ extension StatusBarController {
     }
 
     private func performAutoLogin() {
+        Logger.info("执行自动登录流程")
         api.login { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
@@ -293,6 +302,7 @@ extension StatusBarController {
     }
 
     @objc private func settingsAction() {
+        Logger.debug("打开账号设置窗口")
         settingsWindowController = SettingsWindowController()
         settingsWindowController?.showWindow(nil)
         settingsWindowController?.window?.makeKeyAndOrderFront(nil)
@@ -300,6 +310,7 @@ extension StatusBarController {
     }
 
     @objc private func aboutAction() {
+        Logger.debug("打开关于窗口")
         let controller = AboutWindowController()
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)

@@ -9,8 +9,9 @@
 #include <QVBoxLayout>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
-  setWindowTitle("HAUT Network Guard v1.3.11");
+  setWindowTitle("HAUT Network Guard v1.3.12");
   setFixedSize(400, 550);
+  Logger::debug("MainWindow 初始化开始");
 
   setupUi();
   loadSettings();
@@ -34,6 +35,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_trayIcon, &TrayIcon::logoutRequested, this,
           &MainWindow::onLogoutClicked);
   m_trayIcon->show();
+  Logger::info("系统托盘已初始化");
 
   // 状态检测定时器 (使用配置的间隔)
   m_statusTimer = new QTimer(this);
@@ -41,12 +43,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           &MainWindow::checkNetworkStatus);
   int interval = Config::instance().checkInterval() * 1000;
   m_statusTimer->start(interval);
+  Logger::info(QString("网络状态定时器已启动: %1 ms").arg(interval));
 
   // 启动时检测状态
   QTimer::singleShot(1000, this, &MainWindow::checkNetworkStatus);
 
   // 启动时延迟自动登录 (等待首次状态检测完成)
   QTimer::singleShot(4000, this, &MainWindow::tryAutoLogin);
+  Logger::debug("MainWindow 初始化完成");
 }
 
 MainWindow::~MainWindow() {}
@@ -157,6 +161,14 @@ void MainWindow::loadSettings() {
   m_autoLaunchCheck->setChecked(config.autoLaunch());
   m_autoLoginCheck->setChecked(config.autoLogin());
   m_intervalSpinBox->setValue(config.checkInterval());
+
+  Logger::debug(QString("设置已加载到 UI (用户: %1, 记住密码: %2, 开机自启: %3, "
+                        "自动登录: %4, 间隔: %5)")
+                    .arg(config.username())
+                    .arg(config.autoSave() ? "on" : "off")
+                    .arg(config.autoLaunch() ? "on" : "off")
+                    .arg(config.autoLogin() ? "on" : "off")
+                    .arg(config.checkInterval()));
 }
 
 void MainWindow::saveSettings() {
@@ -174,6 +186,12 @@ void MainWindow::saveSettings() {
 
   // 更新定时器间隔
   m_statusTimer->setInterval(config.checkInterval() * 1000);
+  Logger::info(QString("设置已应用 (用户: %1, 开机自启: %2, 自动登录: %3, "
+                       "间隔: %4s)")
+                   .arg(config.username())
+                   .arg(config.autoLaunch() ? "on" : "off")
+                   .arg(config.autoLogin() ? "on" : "off")
+                   .arg(config.checkInterval()));
 }
 
 void MainWindow::syncCredentialsToConfig() {
@@ -181,6 +199,9 @@ void MainWindow::syncCredentialsToConfig() {
   config.setUsername(m_usernameEdit->text().trimmed());
   config.setPassword(m_passwordEdit->text());
   config.save();
+  Logger::debug(QString("凭据已同步到配置 (用户: %1, 密码长度: %2)")
+                    .arg(config.username())
+                    .arg(m_passwordEdit->text().length()));
 }
 
 void MainWindow::onLoginClicked() {
@@ -213,6 +234,7 @@ void MainWindow::onLogoutClicked() {
 
   m_logoutBtn->setEnabled(false);
   m_logoutBtn->setText("注销中...");
+  Logger::info("手动注销触发");
 
   m_api->logout();
 }
@@ -267,6 +289,14 @@ void MainWindow::onStatusChecked(bool online, const QString &ip,
   bool wasOnline = m_isOnline;
   m_isOnline = online;
 
+  Logger::debug(QString("状态检测完成 (wasOnline=%1, online=%2, ip=%3, bytes=%4, "
+                        "seconds=%5)")
+                    .arg(wasOnline ? "true" : "false")
+                    .arg(online ? "true" : "false")
+                    .arg(ip)
+                    .arg(bytesUsed)
+                    .arg(secondsOnline));
+
   updateStatusDisplay(online, ip, bytesUsed, secondsOnline);
   m_trayIcon->setOnlineStatus(online);
 
@@ -278,10 +308,14 @@ void MainWindow::onStatusChecked(bool online, const QString &ip,
     QString password = Config::instance().password();
 
     if (!username.isEmpty() && !password.isEmpty()) {
-      Logger::info("掉线重连触发");
+      Logger::info(QString("掉线重连触发 (用户: %1, 密码长度: %2)")
+                       .arg(username)
+                       .arg(password.length()));
       m_isLoggingIn = true;
       m_isManualLogin = false;
       m_api->login(username, password);
+    } else {
+      Logger::warn("掉线重连被跳过：未保存凭据");
     }
   }
 }
@@ -291,16 +325,27 @@ void MainWindow::tryAutoLogin() {
     return;
   m_startupLoginAttempted = true;
 
+  Logger::debug(QString("启动自动登录检查 (online=%1, loggingIn=%2, autoLogin=%3)")
+                    .arg(m_isOnline ? "true" : "false")
+                    .arg(m_isLoggingIn ? "true" : "false")
+                    .arg(Config::instance().autoLogin() ? "true" : "false"));
+
   if (!m_isOnline && !m_isLoggingIn && Config::instance().autoLogin()) {
     QString username = Config::instance().username();
     QString password = Config::instance().password();
 
     if (!username.isEmpty() && !password.isEmpty()) {
-      Logger::info("启动自动登录触发");
+      Logger::info(QString("启动自动登录触发 (用户: %1, 密码长度: %2)")
+                       .arg(username)
+                       .arg(password.length()));
       m_isLoggingIn = true;
       m_isManualLogin = false;
       m_api->login(username, password);
+    } else {
+      Logger::warn("启动自动登录被跳过：未保存凭据");
     }
+  } else {
+    Logger::debug("启动自动登录条件未满足");
   }
 }
 
@@ -323,15 +368,20 @@ void MainWindow::updateStatusDisplay(bool online, const QString &ip,
   }
 }
 
-void MainWindow::checkNetworkStatus() { m_api->checkStatus(); }
+void MainWindow::checkNetworkStatus() {
+  Logger::debug("触发网络状态检测");
+  m_api->checkStatus();
+}
 
 void MainWindow::showWindow() {
+  Logger::debug("显示主窗口");
   show();
   raise();
   activateWindow();
 }
 
 void MainWindow::exitApplication() {
+  Logger::info("用户请求退出应用");
   m_trayIcon->hide();
   QApplication::quit();
 }
@@ -340,6 +390,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
   // 关闭窗口时最小化到托盘
   event->ignore();
   hide();
+  Logger::info("主窗口关闭动作已拦截，应用最小化到托盘");
   m_trayIcon->showMessage("HAUT Network Guard", "程序已最小化到系统托盘");
 }
 

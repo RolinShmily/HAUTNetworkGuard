@@ -15,13 +15,13 @@
 - OpenWrt 19.07 或更高版本
 - Lua 5.1+
 - curl
-- openssl-util
+- 建议安装: lua, curl
 
 ## 安装依赖
 
 ```bash
 opkg update
-opkg install lua curl openssl-util
+opkg install lua curl
 ```
 
 ## 一键安装（推荐）
@@ -119,8 +119,8 @@ chmod +x uninstall.sh
 
 ## 技术说明
 
-本版本使用 SRUN Portal 认证协议：
-- XXTEA 加密用户信息
-- HMAC-MD5 加密密码
-- SHA1 生成校验和
-- Custom Base64 编码
+本版本使用 SRUN3K 认证协议：
+- 用户名 `{SRUN3}\r\n` + ASCII 偏移加密
+- 密码 XOR + 位分割编码
+- `POST /cgi-bin/srun_portal` 提交登录请求
+- `GET /cgi-bin/rad_user_info` 检查在线状态
