@@ -49,7 +49,7 @@ void Config::save() {
   QSettings settings("HAUTNetworkGuard", "HAUTNetworkGuard");
 
   settings.setValue("username", m_username);
-  settings.setValue("password", encodePassword(m_password));
+  settings.setValue("password", m_autoSave ? encodePassword(m_password) : "");
   settings.setValue("auto_save", m_autoSave);
   settings.setValue("auto_launch", m_autoLaunch);
   settings.setValue("has_configured", m_hasConfigured);
