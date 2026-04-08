@@ -33,6 +33,59 @@ QString Api::percentEncode(const QString &value) {
   return result;
 }
 
+quint64 Api::trackReply(QNetworkReply *reply, const QString &action) {
+  if (!reply)
+    return 0;
+  const quint64 requestId = ++m_nextRequestId;
+  m_requestIds.insert(reply, requestId);
+  m_requestStartMs.insert(reply, QDateTime::currentMSecsSinceEpoch());
+  m_requestActions.insert(reply, action);
+  return requestId;
+}
+
+void Api::finishTrackedReply(QNetworkReply *reply, quint64 *requestId,
+                             QString *action, qint64 *elapsedMs) {
+  quint64 id = 0;
+  QString act = "unknown";
+  qint64 elapsed = -1;
+
+  if (reply) {
+    id = m_requestIds.take(reply);
+    act = m_requestActions.take(reply);
+    const qint64 startedAt = m_requestStartMs.take(reply);
+    if (startedAt > 0) {
+      elapsed = QDateTime::currentMSecsSinceEpoch() - startedAt;
+    }
+  }
+
+  if (requestId)
+    *requestId = id;
+  if (action)
+    *action = act;
+  if (elapsedMs)
+    *elapsedMs = elapsed;
+}
+
+QString Api::responsePreview(const QString &response, int maxLen) {
+  QString normalized = response;
+  normalized.replace('\r', ' ');
+  normalized.replace('\n', ' ');
+  normalized = normalized.simplified();
+  if (normalized.length() > maxLen) {
+    return normalized.left(maxLen) + "...";
+  }
+  return normalized;
+}
+
+QString Api::extractErrorCode(const QString &response) {
+  QRegularExpression errRe("E(\\d+)");
+  QRegularExpressionMatch match = errRe.match(response);
+  if (match.hasMatch()) {
+    return "E" + match.captured(1);
+  }
+  return "";
+}
+
 void Api::login(const QString &username, const QString &password) {
   QString encUsername = Encryption::encryptUsername(username);
   QString encPassword = Encryption::encryptPassword(password);
@@ -55,19 +108,20 @@ void Api::login(const QString &username, const QString &password) {
   request.setHeader(QNetworkRequest::ContentTypeHeader,
                     "application/x-www-form-urlencoded");
   request.setHeader(QNetworkRequest::UserAgentHeader,
-                    "HAUTNetworkGuard/1.3.12 Qt");
+                    "HAUTNetworkGuard/1.3.13 Qt");
   request.setTransferTimeout(10000);
 
-  Logger::info(QString("登录请求: %1").arg(LOGIN_URL));
-  Logger::debug(QString("登录参数摘要: 用户=%1, 用户名长度=%2, 密码长度=%3, body=%4 bytes")
-                    .arg(username.left(2) + "***")
+  Logger::debug(QString("登录参数摘要: 用户=%1, 用户名长度=%2, 密码长度=%3, "
+                        "encUserLen=%4, encPwdLen=%5")
+                    .arg(Logger::maskUsername(username))
                     .arg(username.length())
                     .arg(password.length())
-                    .arg(body.toUtf8().size()));
-  Logger::debug(QString("POST body: %1").arg(body.left(200)));
+                    .arg(encUsername.length())
+                    .arg(encPassword.length()));
 
-  QNetworkReply *reply =
-      m_networkManager->post(request, body.toUtf8());
+  QNetworkReply *reply = m_networkManager->post(request, body.toUtf8());
+  const quint64 requestId = trackReply(reply, "login");
+  Logger::info(QString("[req:%1] 登录请求已发送").arg(requestId));
   connect(reply, &QNetworkReply::finished, this, &Api::onLoginReplyFinished);
 }
 
@@ -79,18 +133,21 @@ void Api::logout() {
   request.setHeader(QNetworkRequest::ContentTypeHeader,
                     "application/x-www-form-urlencoded");
   request.setHeader(QNetworkRequest::UserAgentHeader,
-                    "HAUTNetworkGuard/1.3.12 Qt");
+                    "HAUTNetworkGuard/1.3.13 Qt");
   request.setTransferTimeout(10000);
 
-  Logger::info(QString("注销请求: %1").arg(LOGIN_URL));
-  Logger::debug(QString("注销请求体长度: %1 bytes").arg(body.toUtf8().size()));
-
-  QNetworkReply *reply =
-      m_networkManager->post(request, body.toUtf8());
+  QNetworkReply *reply = m_networkManager->post(request, body.toUtf8());
+  const quint64 requestId = trackReply(reply, "logout");
+  Logger::info(QString("[req:%1] 注销请求已发送").arg(requestId));
   connect(reply, &QNetworkReply::finished, this, &Api::onLogoutReplyFinished);
 }
 
 void Api::checkStatus() {
+  if (m_statusCheckInFlight) {
+    Logger::debug("跳过状态检测：上一个状态请求尚未完成");
+    return;
+  }
+
   // 使用 JSONP callback 格式获取 JSON 响应 (与 OpenWrt 一致)
   qint64 timestamp = QDateTime::currentMSecsSinceEpoch();
   QString callback = QString("jQuery_%1").arg(timestamp);
@@ -103,11 +160,15 @@ void Api::checkStatus() {
 
   QNetworkRequest request(url);
   request.setHeader(QNetworkRequest::UserAgentHeader,
-                    "HAUTNetworkGuard/1.3.12 Qt");
+                    "HAUTNetworkGuard/1.3.13 Qt");
   request.setTransferTimeout(5000);
-  Logger::debug(QString("状态请求: %1").arg(url.toString()));
 
   QNetworkReply *reply = m_networkManager->get(request);
+  m_statusCheckInFlight = true;
+  const quint64 requestId = trackReply(reply, "status");
+  Logger::debug(QString("[req:%1] 状态请求已发送: %2")
+                    .arg(requestId)
+                    .arg(url.toString()));
   connect(reply, &QNetworkReply::finished, this, &Api::onStatusReplyFinished);
 }
 
@@ -116,31 +177,40 @@ void Api::onLoginReplyFinished() {
   if (!reply)
     return;
 
+  quint64 requestId = 0;
+  QString action;
+  qint64 elapsedMs = -1;
+  finishTrackedReply(reply, &requestId, &action, &elapsedMs);
   reply->deleteLater();
 
   if (reply->error() != QNetworkReply::NoError) {
-    Logger::error(QString("登录网络错误: %1").arg(reply->errorString()));
+    Logger::error(QString("[req:%1][%2] 网络错误: %3 (耗时: %4 ms)")
+                      .arg(requestId)
+                      .arg(action)
+                      .arg(reply->errorString())
+                      .arg(elapsedMs));
     emit loginFailed(QString("网络错误: %1").arg(reply->errorString()));
     return;
   }
 
   QString response = QString::fromUtf8(reply->readAll());
-  Logger::info(QString("登录响应: %1").arg(response));
-  Logger::debug(QString("登录响应长度: %1 bytes").arg(response.toUtf8().size()));
+  const QString errCode = extractErrorCode(response);
+  Logger::info(QString("[req:%1][%2] 响应成功 (耗时: %3 ms, 错误码: %4)")
+                   .arg(requestId)
+                   .arg(action)
+                   .arg(elapsedMs)
+                   .arg(errCode.isEmpty() ? "none" : errCode));
+  Logger::debug(QString("[req:%1] 登录响应预览: %2")
+                    .arg(requestId)
+                    .arg(responsePreview(response)));
 
   // 检查登录结果 (与 Rust 版本一致)
   if (response.contains("login_ok") || response.contains("already_online")) {
     emit loginSuccess("登录成功");
   } else {
-    // 提取错误信息
     QString error = "登录失败";
-    if (response.contains("E")) {
-      // 尝试提取错误码
-      QRegularExpression errRe("E(\\d+)");
-      QRegularExpressionMatch match = errRe.match(response);
-      if (match.hasMatch()) {
-        error = QString("登录失败 (错误码: E%1)").arg(match.captured(1));
-      }
+    if (!errCode.isEmpty()) {
+      error = QString("登录失败 (错误码: %1)").arg(errCode);
     }
     if (!response.isEmpty() && response.length() < 200) {
       error = response;
@@ -154,19 +224,31 @@ void Api::onLogoutReplyFinished() {
   if (!reply)
     return;
 
+  quint64 requestId = 0;
+  QString action;
+  qint64 elapsedMs = -1;
+  finishTrackedReply(reply, &requestId, &action, &elapsedMs);
   reply->deleteLater();
 
   if (reply->error() != QNetworkReply::NoError) {
-    Logger::error(QString("注销网络错误: %1").arg(reply->errorString()));
+    Logger::error(QString("[req:%1][%2] 网络错误: %3 (耗时: %4 ms)")
+                      .arg(requestId)
+                      .arg(action)
+                      .arg(reply->errorString())
+                      .arg(elapsedMs));
     emit logoutFailed(QString("网络错误: %1").arg(reply->errorString()));
     return;
   }
 
   QString response = QString::fromUtf8(reply->readAll());
-  Logger::info(QString("注销响应: %1").arg(response));
-  Logger::debug(QString("注销响应长度: %1 bytes").arg(response.toUtf8().size()));
+  Logger::info(QString("[req:%1][%2] 响应成功 (耗时: %3 ms)")
+                   .arg(requestId)
+                   .arg(action)
+                   .arg(elapsedMs));
+  Logger::debug(QString("[req:%1] 注销响应预览: %2")
+                    .arg(requestId)
+                    .arg(responsePreview(response)));
 
-  // 与 Rust 版本一致
   if (response.contains("logout_ok") || response.contains("not_online")) {
     emit logoutSuccess();
   } else {
@@ -179,62 +261,65 @@ void Api::onStatusReplyFinished() {
   if (!reply)
     return;
 
+  quint64 requestId = 0;
+  QString action;
+  qint64 elapsedMs = -1;
+  finishTrackedReply(reply, &requestId, &action, &elapsedMs);
+  m_statusCheckInFlight = false;
   reply->deleteLater();
 
   if (reply->error() != QNetworkReply::NoError) {
-    Logger::warn(QString("状态请求失败: %1").arg(reply->errorString()));
+    Logger::warn(QString("[req:%1][%2] 状态请求失败: %3 (耗时: %4 ms)")
+                     .arg(requestId)
+                     .arg(action)
+                     .arg(reply->errorString())
+                     .arg(elapsedMs));
     emit statusChecked(false, "", 0, 0);
     return;
   }
 
   QString response = QString::fromUtf8(reply->readAll());
-  Logger::debug(QString("状态响应长度: %1 bytes, 预览: %2")
+  Logger::debug(QString("[req:%1] 状态响应长度: %2 bytes, 耗时: %3 ms, 预览: %4")
+                    .arg(requestId)
                     .arg(response.toUtf8().size())
-                    .arg(response.left(160)));
+                    .arg(elapsedMs)
+                    .arg(responsePreview(response)));
 
-  // 如果响应为空或包含 "not_online"，则离线
   if (response.isEmpty() || response.contains("not_online")) {
-    Logger::debug("状态响应判定为离线");
     emit statusChecked(false, "", 0, 0);
     return;
   }
 
-  // 尝试解析 JSONP 响应 (与 OpenWrt 一致)
-  // 格式: callback({...})
   QString jsonStr;
   QRegularExpression jsonpRe("jQuery_\\d+\\((.+)\\)$");
   QRegularExpressionMatch match = jsonpRe.match(response.trimmed());
   if (match.hasMatch()) {
     jsonStr = match.captured(1);
   } else {
-    // 回退到尝试直接解析 JSON
     jsonStr = response;
   }
 
-  // 解析 JSON
   QJsonParseError parseError;
   QJsonDocument doc = QJsonDocument::fromJson(jsonStr.toUtf8(), &parseError);
-
   if (doc.isObject()) {
     QJsonObject obj = doc.object();
-
-    // 检查 error 字段
     QString error = obj.value("error").toString();
     if (error == "not_online_error" || error.contains("not_online")) {
-      Logger::debug("JSON 状态响应包含 not_online");
       emit statusChecked(false, "", 0, 0);
       return;
     }
 
-    // 解析用户信息 (与 OpenWrt 一致的字段名)
     QString ip = obj.value("online_ip").toString();
     qint64 bytes = obj.value("sum_bytes").toVariant().toLongLong();
     qint64 seconds = obj.value("sum_seconds").toVariant().toLongLong();
     QString username = obj.value("user_name").toString();
 
     if (!username.isEmpty() || !ip.isEmpty()) {
-      Logger::debug(QString("JSON 状态解析成功: user=%1 ip=%2 bytes=%3 seconds=%4")
-                        .arg(username, ip)
+      Logger::debug(QString("[req:%1] JSON 状态解析成功: user=%2 ip=%3 "
+                            "bytes=%4 seconds=%5")
+                        .arg(requestId)
+                        .arg(Logger::maskUsername(username))
+                        .arg(ip)
                         .arg(bytes)
                         .arg(seconds));
       emit statusChecked(true, ip, bytes, seconds);
@@ -242,7 +327,6 @@ void Api::onStatusReplyFinished() {
     }
   }
 
-  // 回退到 CSV 解析格式: username,seconds,ip,bytes,...
   QStringList parts = response.split(',');
   if (parts.size() >= 4) {
     QString username = parts[0];
@@ -250,13 +334,17 @@ void Api::onStatusReplyFinished() {
     QString ip = parts[2];
     qint64 bytes = parts[3].toLongLong();
 
-    Logger::debug(QString("CSV 状态解析成功: user=%1 ip=%2 bytes=%3 seconds=%4")
-                      .arg(username, ip)
+    Logger::debug(QString("[req:%1] CSV 状态解析成功: user=%2 ip=%3 bytes=%4 "
+                          "seconds=%5")
+                      .arg(requestId)
+                      .arg(Logger::maskUsername(username))
+                      .arg(ip)
                       .arg(bytes)
                       .arg(seconds));
     emit statusChecked(true, ip, bytes, seconds);
   } else {
-    Logger::warn("状态响应无法解析，回退为离线");
+    Logger::warn(
+        QString("[req:%1] 状态响应无法解析，回退为离线").arg(requestId));
     emit statusChecked(false, "", 0, 0);
   }
 }

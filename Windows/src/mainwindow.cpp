@@ -11,7 +11,7 @@
 #include <QVBoxLayout>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
-  setWindowTitle("HAUT Network Guard v1.3.12");
+  setWindowTitle("HAUT Network Guard v1.3.13");
   setFixedSize(400, 550);
   Logger::debug("MainWindow 初始化开始");
 
@@ -179,8 +179,7 @@ void MainWindow::saveSettings() {
   Config &config = Config::instance();
 
   config.setUsername(m_usernameEdit->text());
-  config.setPassword(m_autoSaveCheck->isChecked() ? m_passwordEdit->text()
-                                                  : "");
+  config.setPassword(m_passwordEdit->text());
   config.setAutoSave(m_autoSaveCheck->isChecked());
   config.setAutoLaunch(m_autoLaunchCheck->isChecked());
   config.setAutoLogin(m_autoLoginCheck->isChecked());

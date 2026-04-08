@@ -23,7 +23,7 @@
 
 ### OpenWrt
 - OpenWrt 19.07 或更高版本
-- 需要安装: lua, curl, openssl-util
+- 建议安装: lua, curl
 
 ## 下载安装
 
@@ -188,7 +188,7 @@ HAUTNetworkGuard/
 | 语言 | Swift | **C++ (Qt 6)** | Lua |
 | GUI | AppKit | **Qt Widgets** | CLI |
 | HTTP | URLSession | **QNetworkAccessManager** | curl |
-| 加密 | SRUN3K | SRUN3K | SRUN Portal |
+| 加密 | SRUN3K | SRUN3K | SRUN3K |
 | 配置存储 | UserDefaults | **QSettings** | UCI |
 | 系统托盘 | NSStatusItem | **QSystemTrayIcon** | - |
 | 开机自启 | LaunchAgent | 注册表 Run 键 | procd |
@@ -223,6 +223,14 @@ cd OpenWrt
 ```
 
 ## 版本历史
+
+### v1.3.13 (2026-04)
+- **Windows**: 修复“未勾选记住密码仍被持久化”的问题
+  - 配置保存现在遵循 `记住密码` 开关，关闭时仅保留当前会话密码
+- **Windows**: 收紧 API 调试日志并补充请求级追踪
+  - 为登录/注销/状态检测增加请求 ID、耗时、响应分类和并发状态日志
+  - 移除认证请求体预览，避免编码后的认证字段进入日志
+- **全平台**: 版本号同步更新为 1.3.13
 
 ### v1.3.12 (2026-04)
 - **OpenWrt**: 修复特定固件环境下自动登录循环报 `E2531: User not found`
