@@ -1,15 +1,29 @@
 #!/bin/sh
 # HAUT Network Guard - OpenWrt 一键安装脚本
-# 用法: wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/main/OpenWrt/install-online.sh | sh
+# 用法:
+#   最新 main: wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/main/OpenWrt/install-online.sh | sh
+#   固定版本:   wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.14/OpenWrt/install-online.sh | sh -s -- v1.3.14
 
 set -e
 
-REPO_URL="https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/main/OpenWrt"
+REPO_REF="${1:-main}"
+REPO_URL="https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/${REPO_REF}/OpenWrt"
 INSTALL_DIR="/usr/lib/haut-network-guard"
+
+download_file() {
+    url="$1"
+    dest="$2"
+    tmp="${dest}.tmp"
+
+    curl -fsSL "$url" -o "$tmp"
+    mv "$tmp" "$dest"
+}
 
 echo "=========================================="
 echo "  HAUT Network Guard - OpenWrt 一键安装"
 echo "=========================================="
+echo ""
+echo "源版本: $REPO_REF"
 echo ""
 
 # 检查 root 权限
@@ -31,14 +45,14 @@ mkdir -p "$INSTALL_DIR"
 
 # 下载文件
 echo "[3/5] 下载程序文件..."
-curl -sL "$REPO_URL/files/usr/lib/haut-network-guard/crypto.lua" -o "$INSTALL_DIR/crypto.lua"
-curl -sL "$REPO_URL/files/usr/lib/haut-network-guard/api.lua" -o "$INSTALL_DIR/api.lua"
-curl -sL "$REPO_URL/files/usr/lib/haut-network-guard/log.lua" -o "$INSTALL_DIR/log.lua"
-curl -sL "$REPO_URL/files/usr/lib/haut-network-guard/main.lua" -o "$INSTALL_DIR/main.lua"
+download_file "$REPO_URL/files/usr/lib/haut-network-guard/crypto.lua" "$INSTALL_DIR/crypto.lua"
+download_file "$REPO_URL/files/usr/lib/haut-network-guard/api.lua" "$INSTALL_DIR/api.lua"
+download_file "$REPO_URL/files/usr/lib/haut-network-guard/log.lua" "$INSTALL_DIR/log.lua"
+download_file "$REPO_URL/files/usr/lib/haut-network-guard/main.lua" "$INSTALL_DIR/main.lua"
 
 echo "[4/5] 下载配置文件..."
-curl -sL "$REPO_URL/files/etc/init.d/haut-network-guard" -o "/etc/init.d/haut-network-guard"
-curl -sL "$REPO_URL/files/etc/config/haut-network-guard" -o "/etc/config/haut-network-guard"
+download_file "$REPO_URL/files/etc/init.d/haut-network-guard" "/etc/init.d/haut-network-guard"
+download_file "$REPO_URL/files/etc/config/haut-network-guard" "/etc/config/haut-network-guard"
 
 # 设置权限
 echo "[5/5] 设置权限..."
@@ -50,7 +64,7 @@ chmod 600 /etc/config/haut-network-guard
 
 echo ""
 echo "=========================================="
-echo "  安装完成! (v1.3.13)"
+echo "  安装完成! (v1.3.14)"
 echo "=========================================="
 echo ""
 echo "下一步 - 配置账号:"

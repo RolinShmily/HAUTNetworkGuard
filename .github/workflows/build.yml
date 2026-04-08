@@ -7,6 +7,28 @@ on:
   workflow_dispatch:
 
 jobs:
+  validate-openwrt:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Lua
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.3
+
+      - name: Validate OpenWrt Lua Scripts
+        run: |
+          find OpenWrt/files/usr/lib/haut-network-guard -name '*.lua' -print -exec luac5.3 -p {} \;
+
+      - name: Validate OpenWrt Shell Scripts
+        run: |
+          sh -n OpenWrt/install.sh
+          sh -n OpenWrt/install-online.sh
+          sh -n OpenWrt/uninstall-online.sh
+          sh -n OpenWrt/files/etc/init.d/haut-network-guard
+
   build-windows-qt:
     runs-on: windows-latest
     steps:
@@ -71,7 +93,7 @@ jobs:
           path: macOS/build/HAUTNetworkGuard.dmg
 
   release:
-    needs: [build-windows-qt, build-macos]
+    needs: [validate-openwrt, build-windows-qt, build-macos]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -111,7 +133,7 @@ jobs:
             |------|------|------|
             | **Windows** | `HAUTNetworkGuard-Windows.zip` | 解压后运行 `HAUTNetworkGuard.exe` |
             | **macOS** | `HAUTNetworkGuard.dmg` | 双击安装到应用程序 |
-            | **OpenWrt** | 一键安装 | `wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/main/OpenWrt/install-online.sh \| sh` |
+            | **OpenWrt** | 一键安装 | `wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/${{ steps.get_version.outputs.VERSION }}/OpenWrt/install-online.sh \| sh -s -- ${{ steps.get_version.outputs.VERSION }}` |
 
             ### ⚠️ macOS 用户注意
 

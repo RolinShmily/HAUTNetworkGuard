@@ -2,7 +2,7 @@
 -- HAUT Network Guard - OpenWrt 版本
 -- 主程序入口
 
-local VERSION = "1.3.13"
+local VERSION = "1.3.14"
 
 package.path = package.path .. ";/usr/lib/haut-network-guard/?.lua"
 
