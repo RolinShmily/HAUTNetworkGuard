@@ -11,23 +11,58 @@ local log = require("log")
 
 local function trim_value(value)
     if not value then return "" end
-    value = tostring(value)
-    value = value:gsub("^\239\187\191", "")
-    value = value:gsub("\r", "")
-    value = value:gsub("\n", "")
-    value = value:gsub("^%s+", "")
-    value = value:gsub("%s+$", "")
-    return value
+    return tostring(value):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function strip_wrapping_quotes(value)
+    if #value >= 2 then
+        local first = value:sub(1, 1)
+        local last = value:sub(-1, -1)
+        if (first == "\"" and last == "\"") or (first == "'" and last == "'") then
+            return value:sub(2, -2), true
+        end
+    end
+    return value, false
+end
+
+local function sanitize_uci_value(raw)
+    local original = tostring(raw or "")
+    local sanitized = original:gsub("^\239\187\191", "")
+
+    local had_cr = sanitized:find("\r", 1, true) ~= nil
+    sanitized = sanitized:gsub("\r", "")
+
+    local had_control = sanitized:find("[%z\1-\8\11\12\14-\31\127]") ~= nil
+    sanitized = sanitized:gsub("[%z\1-\8\11\12\14-\31\127]", "")
+
+    local before_trim = sanitized
+    sanitized = trim_value(sanitized)
+    local trimmed = before_trim ~= sanitized
+
+    local unquoted = false
+    sanitized, unquoted = strip_wrapping_quotes(sanitized)
+    if unquoted then
+        sanitized = trim_value(sanitized)
+    end
+
+    return sanitized, {
+        raw_len = #original,
+        clean_len = #sanitized,
+        had_cr = had_cr,
+        had_control = had_control,
+        trimmed = trimmed,
+        unquoted = unquoted
+    }
 end
 
 local function read_uci_value(key)
     local handle = io.popen("uci -q get " .. key .. " 2>/dev/null")
     if not handle then
-        return nil
+        return ""
     end
-    local value = handle:read("*a")
+    local value = handle:read("*a") or ""
     handle:close()
-    return trim_value(value)
+    return value
 end
 
 -- 读取 UCI 配置
@@ -39,18 +74,27 @@ local function read_config()
         interval = 30,
         log_level = "info"
     }
+    local diagnostics = {}
 
-    config.username = read_uci_value("haut-network-guard.main.username") or ""
-    config.password = read_uci_value("haut-network-guard.main.password") or ""
-    config.log_level = read_uci_value("haut-network-guard.main.log_level") or "info"
+    config.username, diagnostics.username =
+        sanitize_uci_value(read_uci_value("haut-network-guard.main.username"))
+    config.password, diagnostics.password =
+        sanitize_uci_value(read_uci_value("haut-network-guard.main.password"))
+    config.log_level, diagnostics.log_level =
+        sanitize_uci_value(read_uci_value("haut-network-guard.main.log_level"))
 
-    local enabled_value = read_uci_value("haut-network-guard.main.enabled")
-    if enabled_value ~= nil and enabled_value ~= "" then
-        config.enabled = (enabled_value ~= "0")
+    local enabled_value, enabled_diag =
+        sanitize_uci_value(read_uci_value("haut-network-guard.main.enabled"))
+    diagnostics.enabled = enabled_diag
+    if enabled_value ~= "" then
+        local normalized = enabled_value:lower()
+        config.enabled = not (normalized == "0" or normalized == "false" or normalized == "off")
     end
 
-    local interval_value = read_uci_value("haut-network-guard.main.interval")
-    if interval_value ~= nil and interval_value ~= "" then
+    local interval_value, interval_diag =
+        sanitize_uci_value(read_uci_value("haut-network-guard.main.interval"))
+    diagnostics.interval = interval_diag
+    if interval_value ~= "" then
         config.interval = tonumber(interval_value) or 30
     end
 
@@ -61,19 +105,59 @@ local function read_config()
         config.interval = 300
     end
 
-    return config
+    return config, diagnostics
+end
+
+local function has_suspicious_changes(diag)
+    if not diag then return false end
+    return diag.had_cr or diag.had_control or diag.trimmed or diag.unquoted
 end
 
 local function config_signature(config)
+    return table.concat({
+        config.enabled and "1" or "0",
+        config.username,
+        config.password,
+        tostring(config.interval),
+        tostring(config.log_level)
+    }, "|")
+end
+
+local function config_summary(config)
     return string.format(
-        "enabled=%s username=%s username_len=%d password_len=%d interval=%d log_level=%s",
+        "enabled=%s user=%s user_len=%d pass_len=%d interval=%d log_level=%s",
         tostring(config.enabled),
-        log.mask_secret(config.username),
-        #(config.username or ""),
-        #(config.password or ""),
+        log.mask_username(config.username),
+        #config.username,
+        #config.password,
         tonumber(config.interval) or -1,
         tostring(config.log_level)
     )
+end
+
+local function log_diagnostics(diagnostics)
+    if has_suspicious_changes(diagnostics.username) then
+        log.warn(string.format(
+            "用户名已清洗: raw_len=%d clean_len=%d trim=%s cr=%s ctrl=%s unquote=%s",
+            diagnostics.username.raw_len,
+            diagnostics.username.clean_len,
+            tostring(diagnostics.username.trimmed),
+            tostring(diagnostics.username.had_cr),
+            tostring(diagnostics.username.had_control),
+            tostring(diagnostics.username.unquoted)
+        ))
+    end
+    if has_suspicious_changes(diagnostics.password) then
+        log.warn(string.format(
+            "密码已清洗: raw_len=%d clean_len=%d trim=%s cr=%s ctrl=%s unquote=%s",
+            diagnostics.password.raw_len,
+            diagnostics.password.clean_len,
+            tostring(diagnostics.password.trimmed),
+            tostring(diagnostics.password.had_cr),
+            tostring(diagnostics.password.had_control),
+            tostring(diagnostics.password.unquoted)
+        ))
+    end
 end
 
 -- 格式化流量
@@ -106,40 +190,94 @@ end
 -- 主循环
 local function main()
     log.info("HAUT Network Guard v" .. VERSION .. " 启动")
-    log.info("运行环境: OpenWrt/procd 自动登录守护进程")
+    log.info("运行模式: OpenWrt/procd 自动登录守护进程")
+
+    local last_signature = nil
+    local previous_online = nil
+    local consecutive_failures = 0
+    local last_login_error = ""
 
     while true do
-        local config = read_config()
-        log.debug("配置快照: " .. config_signature(config))
+        log.refresh_level()
+
+        local config, diagnostics = read_config()
+        local signature = config_signature(config)
         local sleep_seconds = config.interval
+
+        if signature ~= last_signature then
+            log.info("配置更新: " .. config_summary(config))
+            log_diagnostics(diagnostics)
+            last_signature = signature
+        end
 
         if not config.enabled then
             log.warn("服务已禁用，等待下一轮检测")
         elseif config.username == "" or config.password == "" then
             log.error("未配置用户名或密码，等待下一轮检测")
         else
-            local user_info = api.get_user_info()
+            local user_info = api.get_user_info("monitor_loop")
 
             if user_info then
+                if previous_online ~= true then
+                    log.info("状态迁移: offline -> online")
+                end
+                previous_online = true
+                consecutive_failures = 0
+                last_login_error = ""
                 log.info(string.format(
-                    "在线 - IP: %s, 流量: %s, 时长: %s",
+                    "在线 - user=%s, IP=%s, 流量=%s, 时长=%s",
+                    log.mask_username(user_info.username),
                     user_info.ip,
                     format_bytes(user_info.bytes),
                     format_time(user_info.seconds)
                 ))
             else
-                log.warn("离线，尝试登录...")
+                if previous_online ~= false then
+                    log.warn("状态迁移: online -> offline")
+                end
+                previous_online = false
+                log.warn("离线，触发自动登录")
 
-                local success, msg = api.login(config.username, config.password)
+                local success, msg, category = api.login(
+                    config.username,
+                    config.password,
+                    { source = "auto_loop" }
+                )
+
                 if success then
-                    log.info("登录成功: " .. msg)
+                    consecutive_failures = 0
+                    last_login_error = ""
+                    log.info("登录成功: " .. tostring(msg))
                 else
-                    log.error("登录失败: " .. msg)
+                    consecutive_failures = consecutive_failures + 1
+                    local sanitized_msg = log.preview(msg or "登录失败", 180)
+                    if sanitized_msg == last_login_error then
+                        log.warn(string.format(
+                            "登录连续失败(%d次), 分类=%s, msg=%s",
+                            consecutive_failures, tostring(category or "unknown"), sanitized_msg
+                        ))
+                    else
+                        log.error(string.format(
+                            "登录失败, 分类=%s, msg=%s",
+                            tostring(category or "unknown"), sanitized_msg
+                        ))
+                    end
+                    last_login_error = sanitized_msg
+
+                    if consecutive_failures > 1 then
+                        local backoff = math.min(60, (consecutive_failures - 1) * 5)
+                        sleep_seconds = sleep_seconds + backoff
+                        log.warn(string.format(
+                            "应用失败退避: +%ds (连续失败=%d)",
+                            backoff, consecutive_failures
+                        ))
+                    end
                 end
             end
         end
 
-        os.execute("sleep " .. sleep_seconds)
+        log.debug("下次检测等待: " .. tostring(sleep_seconds) .. "秒")
+        os.execute("sleep " .. tostring(sleep_seconds))
     end
 end
 

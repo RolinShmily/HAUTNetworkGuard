@@ -90,16 +90,13 @@ class UpdateChecker {
         request.setValue("application/vnd.github.v3+json", forHTTPHeaderField: "Accept")
         request.setValue("HAUTNetworkGuard/\(AppConfig.version)", forHTTPHeaderField: "User-Agent")
 
-        Logger.log("检测更新...")
+        Logger.info("检测更新 (manual: \(isManual), force: \(force))")
 
         let task = session.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
 
-            // 记录检测时间
-            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: self.lastCheckKey)
-
             if let error = error {
-                Logger.log("检测更新失败: \(error.localizedDescription)")
+                Logger.warn("检测更新失败: \(error.localizedDescription)")
                 if isManual {
                     DispatchQueue.main.async {
                         self.onCheckComplete?(.error("网络请求失败: \(error.localizedDescription)"))
@@ -109,7 +106,7 @@ class UpdateChecker {
             }
 
             guard let data = data else {
-                Logger.log("检测更新失败: 无响应数据")
+                Logger.warn("检测更新失败: 无响应数据")
                 if isManual {
                     DispatchQueue.main.async {
                         self.onCheckComplete?(.error("服务器无响应"))
@@ -128,7 +125,7 @@ class UpdateChecker {
         do {
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let tagName = json["tag_name"] as? String else {
-                Logger.log("解析 Release 信息失败")
+                Logger.warn("解析 Release 信息失败")
                 if isManual {
                     DispatchQueue.main.async {
                         self.onCheckComplete?(.error("解析版本信息失败"))
@@ -140,7 +137,9 @@ class UpdateChecker {
             // 提取版本号 (去掉 v 前缀)
             let latestVersion = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
 
-            Logger.log("当前版本: \(AppConfig.version), 最新版本: \(latestVersion)")
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: lastCheckKey)
+
+            Logger.info("当前版本: \(AppConfig.version), 最新版本: \(latestVersion)")
 
             // 获取下载链接
             var downloadURL: String? = nil
@@ -169,22 +168,21 @@ class UpdateChecker {
                 // 检查是否跳过了此版本
                 let skippedVersion = UserDefaults.standard.string(forKey: skippedVersionKey)
                 if !force && !isManual && skippedVersion == latestVersion {
-                    Logger.log("用户已跳过此版本: \(latestVersion)")
+                    Logger.info("用户已跳过此版本: \(latestVersion)")
                     return
                 }
 
-                Logger.log("发现新版本: \(latestVersion)")
+                Logger.info("发现新版本: \(latestVersion)")
 
                 DispatchQueue.main.async {
-                    // 后台自动检测回调
                     if !isManual {
                         self.onUpdateAvailable?(releaseInfo)
+                    } else {
+                        self.onCheckComplete?(.hasUpdate(releaseInfo))
                     }
-                    // 手动检测回调
-                    self.onCheckComplete?(.hasUpdate(releaseInfo))
                 }
             } else {
-                Logger.log("已是最新版本")
+                Logger.info("已是最新版本")
                 if isManual {
                     DispatchQueue.main.async {
                         self.onCheckComplete?(.noUpdate(releaseInfo))
@@ -192,7 +190,7 @@ class UpdateChecker {
                 }
             }
         } catch {
-            Logger.log("解析 Release JSON 失败: \(error.localizedDescription)")
+            Logger.warn("解析 Release JSON 失败: \(error.localizedDescription)")
             if isManual {
                 DispatchQueue.main.async {
                     self.onCheckComplete?(.error("解析数据失败: \(error.localizedDescription)"))
@@ -225,7 +223,7 @@ class UpdateChecker {
     /// 跳过此版本
     func skipVersion(_ version: String) {
         UserDefaults.standard.set(version, forKey: skippedVersionKey)
-        Logger.log("已跳过版本: \(version)")
+        Logger.info("已跳过版本: \(version)")
     }
 
     /// 清除跳过的版本

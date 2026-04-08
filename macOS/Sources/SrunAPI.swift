@@ -12,6 +12,19 @@ enum NetworkStatus {
         return false
     }
 
+    var kindLabel: String {
+        switch self {
+        case .online:
+            return "online"
+        case .offline:
+            return "offline"
+        case .checking:
+            return "checking"
+        case .error:
+            return "error"
+        }
+    }
+
     var description: String {
         switch self {
         case .online(let username, let ip, let usedBytes, let usedSeconds):
@@ -89,6 +102,9 @@ class SrunAPI {
 
     /// 检查网络状态 (使用 JSONP 格式，与 OpenWrt 一致)
     func checkStatus(completion: @escaping (NetworkStatus) -> Void) {
+        let requestID = Logger.makeRequestID(prefix: "status")
+        let startedAt = CFAbsoluteTimeGetCurrent()
+
         // 生成 JSONP callback 参数
         let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
         let callback = "jQuery_\(timestamp)"
@@ -104,17 +120,19 @@ class SrunAPI {
             return
         }
 
-        Logger.debug("开始检查网络状态: \(url)")
+        Logger.debug("[\(requestID)] 开始检查网络状态: \(url)")
         httpClient.get(url: url) { result in
             switch result {
             case .success(let responseStr):
-                Logger.debug("状态响应(\(responseStr.utf8.count) bytes): \(self.preview(responseStr))")
                 let status = self.parseStatusResponse(responseStr, callback: callback)
-                Logger.debug("状态解析结果: \(status.description)")
+                let durationMs = Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000)
+                Logger.info("[\(requestID)] 状态检测完成: \(status.kindLabel) (\(durationMs)ms)")
+                Logger.debug("[\(requestID)] 状态响应(\(responseStr.utf8.count) bytes): \(self.preview(responseStr))")
                 completion(status)
             case .failure(let error):
-                Logger.warn("状态检查失败: \(error.localizedDescription)")
-                completion(.offline)
+                let durationMs = Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000)
+                Logger.warn("[\(requestID)] 状态检查失败 (\(durationMs)ms): \(error.localizedDescription)")
+                completion(.error(error.localizedDescription))
             }
         }
     }
@@ -204,12 +222,20 @@ class SrunAPI {
 
     /// 执行登录
     func login(completion: @escaping (LoginResult) -> Void) {
+        guard !username.isEmpty, !password.isEmpty else {
+            Logger.warn("登录已取消：凭据为空")
+            completion(.failed("未配置学号或密码"))
+            return
+        }
+
+        let requestID = Logger.makeRequestID(prefix: "login")
         let encryptedUsername = SrunEncryption.encryptUsername(username)
         let encryptedPassword = SrunEncryption.encryptPassword(password)
 
-        Logger.info("准备登录: 用户=\(mask(username)), 用户名长度=\(username.count), 密码长度=\(password.count)")
-        Logger.debug("加密用户名预览: \(preview(encryptedUsername))")
-        Logger.debug("加密密码长度: \(encryptedPassword.count)")
+        Logger.info(
+            "[\(requestID)] 准备登录: account=\(Logger.maskUsername(username)), user_len=\(username.count), pass_len=\(password.count), remember_password=\(AppConfig.shared.autoSave)"
+        )
+        Logger.debug("[\(requestID)] 编码长度: enc_user_len=\(encryptedUsername.count), enc_pass_len=\(encryptedPassword.count)")
 
         let params: [String: String] = [
             "action": "login",
@@ -225,44 +251,62 @@ class SrunAPI {
             "mac": "02:00:00:00:00:00"
         ]
 
-        sendRequest(params: params) { result in
+        sendRequest(params: params, requestID: requestID) { result in
             completion(result)
         }
     }
 
     /// 执行注销
     func logout(completion: @escaping (LoginResult) -> Void) {
+        let requestID = Logger.makeRequestID(prefix: "logout")
         let params: [String: String] = [
             "action": "logout"
         ]
 
-        sendRequest(params: params) { result in
+        sendRequest(params: params, requestID: requestID) { result in
             completion(result)
         }
     }
 
     /// 发送 POST 请求
     private func sendRequest(params: [String: String],
+                            requestID: String,
                             completion: @escaping (LoginResult) -> Void) {
+        let action = params["action"] ?? "unknown"
+        let startedAt = CFAbsoluteTimeGetCurrent()
         let bodyString = params.map { "\($0.key)=\($0.value.urlEncoded)" }
                                .joined(separator: "&")
 
-        Logger.info("发送请求: \(SrunAPI.loginURL)")
-        Logger.debug("操作: \(params["action"] ?? "")")
-        Logger.debug("请求体(\(bodyString.utf8.count) bytes): \(preview(bodyString))")
+        Logger.info("[\(requestID)] 发送请求: \(SrunAPI.loginURL) action=\(action)")
+        Logger.debug("[\(requestID)] 请求摘要: field_count=\(params.count), body_len=\(bodyString.utf8.count)")
 
         httpClient.post(url: SrunAPI.loginURL, body: bodyString) { result in
             switch result {
             case .success(let responseStr):
-                Logger.info("响应: \(self.preview(responseStr))")
-                Logger.debug("响应长度: \(responseStr.utf8.count) bytes")
+                let durationMs = Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000)
+                Logger.info("[\(requestID)] 响应分类: \(self.classifyResponse(responseStr)) (\(durationMs)ms)")
+                Logger.debug("[\(requestID)] 响应预览: \(self.preview(responseStr))")
                 let loginResult = self.parseLoginResponse(responseStr)
                 completion(loginResult)
             case .failure(let error):
-                Logger.error("请求失败: \(error.localizedDescription)")
+                let durationMs = Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000)
+                Logger.error("[\(requestID)] 请求失败 (\(durationMs)ms): \(error.localizedDescription)")
                 completion(.failed(error.localizedDescription))
             }
         }
+    }
+
+    private func classifyResponse(_ response: String) -> String {
+        if response.contains("login_ok") {
+            return "login_ok"
+        } else if response.contains("already_online") {
+            return "already_online"
+        } else if response.contains("logout_ok") {
+            return "logout_ok"
+        } else if let range = response.range(of: "E\\d+", options: .regularExpression) {
+            return "error_\(response[range])"
+        }
+        return "unknown"
     }
 
     /// 解析登录响应
@@ -310,6 +354,7 @@ struct Logger {
 
     static var isEnabled = true
     static var minLevel: Level = .debug
+    private static var requestCounter: UInt64 = 0
 
     private static let maxFileSize: UInt64 = 1_048_576 // 1MB
 
@@ -367,6 +412,21 @@ struct Logger {
     static func info(_ message: String)  { log(.info, message) }
     static func warn(_ message: String)  { log(.warn, message) }
     static func error(_ message: String) { log(.error, message) }
+
+    static func makeRequestID(prefix: String) -> String {
+        requestCounter += 1
+        return "\(prefix)-\(requestCounter)"
+    }
+
+    static func maskUsername(_ username: String) -> String {
+        guard !username.isEmpty else { return "<empty>" }
+        if username.count <= 4 {
+            return String(repeating: "*", count: username.count)
+        }
+        let prefix = username.prefix(2)
+        let suffix = username.suffix(2)
+        return "\(prefix)\(String(repeating: "*", count: max(0, username.count - 4)))\(suffix)"
+    }
 
     /// 兼容旧调用
     static func log(_ message: String) { info(message) }

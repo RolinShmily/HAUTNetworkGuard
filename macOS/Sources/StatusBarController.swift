@@ -12,6 +12,10 @@ class StatusBarController: NSObject {
     private var checkTimer: Timer?
     private var currentStatus: NetworkStatus = .checking
     private var checkInterval: TimeInterval { TimeInterval(AppConfig.shared.checkInterval) }
+    private var isLoggingIn = false
+    private var startupAutoLoginEvaluated = false
+    private var lastAutoLoginAttemptAt: Date?
+    private let autoLoginRetryInterval: TimeInterval = 30
 
     // 状态图标
     private let onlineIcon = "wifi"
@@ -49,9 +53,9 @@ class StatusBarController: NSObject {
             withTimeInterval: checkInterval,
             repeats: true
         ) { [weak self] _ in
-            self?.checkStatus()
+            self?.checkStatus(reason: "timer")
         }
-        Logger.log("定时器已重启, 间隔: \(Int(checkInterval))秒")
+        Logger.info("定时器已重启, 间隔: \(Int(checkInterval))秒")
     }
 }
 
@@ -165,20 +169,20 @@ extension StatusBarController {
 extension StatusBarController {
     private func startMonitoring() {
         Logger.info("开始网络监控，检测间隔: \(Int(checkInterval)) 秒")
-        checkStatus()
+        checkStatus(reason: "startup")
         checkTimer = Timer.scheduledTimer(
             withTimeInterval: checkInterval,
             repeats: true
         ) { [weak self] _ in
-            self?.checkStatus()
+            self?.checkStatus(reason: "timer")
         }
     }
 
-    private func checkStatus() {
-        Logger.debug("触发一次网络状态检测")
+    private func checkStatus(reason: String) {
+        Logger.debug("触发一次网络状态检测 [\(reason)]")
         api.checkStatus { [weak self] status in
             DispatchQueue.main.async {
-                self?.handleStatusChange(status)
+                self?.handleStatusChange(status, reason: reason)
             }
         }
     }
@@ -186,27 +190,44 @@ extension StatusBarController {
 
 // MARK: - 状态处理
 extension StatusBarController {
-    private func handleStatusChange(_ newStatus: NetworkStatus) {
-        let wasOnline = currentStatus.isOnline
+    private func handleStatusChange(_ newStatus: NetworkStatus, reason: String) {
+        let previousStatus = currentStatus
+        let wasOnline = previousStatus.isOnline
         currentStatus = newStatus
-        Logger.debug("状态变更: wasOnline=\(wasOnline), now=\(newStatus.description)")
+        Logger.info("状态迁移 [\(reason)]: \(previousStatus.kindLabel) -> \(newStatus.kindLabel)")
 
         updateUI()
 
-        // 每次检测到离线状态都尝试自动登录
-        if !newStatus.isOnline && AppConfig.shared.autoLogin {
-            // 只在首次检测到掉线时发送通知
-            if wasOnline {
-                Logger.log("检测到掉线，尝试自动重连...")
+        if newStatus.isOnline {
+            startupAutoLoginEvaluated = true
+            lastAutoLoginAttemptAt = nil
+            Logger.debug("当前在线，无需自动登录")
+            return
+        }
+
+        guard AppConfig.shared.autoLogin else {
+            Logger.debug("自动登录已关闭，保持当前状态")
+            return
+        }
+
+        switch newStatus {
+        case .offline:
+            let trigger: String
+            if !startupAutoLoginEvaluated {
+                startupAutoLoginEvaluated = true
+                trigger = "startup_offline"
+            } else if wasOnline {
+                trigger = "disconnect"
+                Logger.warn("检测到掉线，准备自动重连")
                 sendNotification(title: "网络已断开", body: "正在尝试自动重连...")
             } else {
-                Logger.log("仍处于离线状态，继续尝试登录...")
+                trigger = "offline_retry"
             }
-            performAutoLogin()
-        } else if newStatus.isOnline {
-            Logger.debug("当前在线，无需自动登录")
-        } else {
-            Logger.debug("自动登录已关闭，保持离线状态")
+            triggerAutoLoginIfNeeded(trigger: trigger)
+        case .error(let message):
+            Logger.warn("状态检测错误，不触发自动登录: \(message)")
+        case .checking, .online:
+            break
         }
     }
 
@@ -237,20 +258,46 @@ extension StatusBarController {
         detailMenuItem.title = currentStatus.description
     }
 
-    private func performAutoLogin() {
-        Logger.info("执行自动登录流程")
+    private func triggerAutoLoginIfNeeded(trigger: String) {
+        guard !isLoggingIn else {
+            Logger.debug("跳过自动登录 [\(trigger)]：已有登录请求进行中")
+            return
+        }
+
+        guard !AppConfig.shared.username.isEmpty, !AppConfig.shared.password.isEmpty else {
+            Logger.warn("跳过自动登录 [\(trigger)]：未配置可用凭据")
+            return
+        }
+
+        let now = Date()
+        if let lastAttempt = lastAutoLoginAttemptAt {
+            let elapsed = now.timeIntervalSince(lastAttempt)
+            if elapsed < autoLoginRetryInterval {
+                Logger.debug("跳过自动登录 [\(trigger)]：退避剩余 \(Int(autoLoginRetryInterval - elapsed))s")
+                return
+            }
+        }
+
+        lastAutoLoginAttemptAt = now
+        performAutoLogin(trigger: trigger)
+    }
+
+    private func performAutoLogin(trigger: String) {
+        isLoggingIn = true
+        Logger.info("执行自动登录流程 [\(trigger)] (account: \(Logger.maskUsername(AppConfig.shared.username)))")
         api.login { [weak self] result in
             DispatchQueue.main.async {
+                self?.isLoggingIn = false
                 switch result {
                 case .success:
-                    Logger.log("自动登录成功")
+                    Logger.info("自动登录成功 [\(trigger)]")
                     self?.sendNotification(title: "登录成功", body: "已自动重新连接校园网")
-                    self?.checkStatus()
+                    self?.checkStatus(reason: "post_auto_login_success")
                 case .alreadyOnline:
-                    Logger.log("已经在线")
-                    self?.checkStatus()
+                    Logger.info("自动登录返回 already_online [\(trigger)]")
+                    self?.checkStatus(reason: "post_auto_login_already_online")
                 case .failed(let msg):
-                    Logger.log("自动登录失败: \(msg)")
+                    Logger.warn("自动登录失败 [\(trigger)]: \(msg)")
                     self?.sendNotification(title: "登录失败", body: msg)
                 }
             }
@@ -261,9 +308,16 @@ extension StatusBarController {
 // MARK: - 菜单操作
 extension StatusBarController {
     @objc private func loginAction() {
-        Logger.log("手动登录")
+        guard !isLoggingIn else {
+            Logger.debug("忽略手动登录：已有登录请求进行中")
+            return
+        }
+
+        isLoggingIn = true
+        Logger.info("手动登录")
         api.login { [weak self] result in
             DispatchQueue.main.async {
+                self?.isLoggingIn = false
                 switch result {
                 case .success:
                     self?.sendNotification(title: "登录成功", body: "已连接校园网")
@@ -272,13 +326,13 @@ extension StatusBarController {
                 case .failed(let msg):
                     self?.sendNotification(title: "登录失败", body: msg)
                 }
-                self?.checkStatus()
+                self?.checkStatus(reason: "manual_login")
             }
         }
     }
 
     @objc private func logoutAction() {
-        Logger.log("手动注销")
+        Logger.info("手动注销")
         api.logout { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
@@ -287,14 +341,14 @@ extension StatusBarController {
                 case .alreadyOnline, .failed:
                     self?.sendNotification(title: "注销失败", body: "请稍后重试")
                 }
-                self?.checkStatus()
+                self?.checkStatus(reason: "manual_logout")
             }
         }
     }
 
     @objc private func checkNowAction() {
-        Logger.log("手动检测")
-        checkStatus()
+        Logger.info("手动检测")
+        checkStatus(reason: "manual_check")
     }
 
     @objc private func quitAction() {
@@ -318,7 +372,7 @@ extension StatusBarController {
     }
 
     @objc private func checkUpdateAction() {
-        Logger.log("手动检查更新")
+        Logger.info("手动检查更新")
         UpdateChecker.shared.checkForUpdate(isManual: true, force: true)
     }
 }
@@ -330,7 +384,9 @@ extension StatusBarController {
             options: [.alert, .sound]
         ) { granted, error in
             if granted {
-                Logger.log("通知权限已授予")
+                Logger.info("通知权限已授予")
+            } else if let error = error {
+                Logger.warn("通知权限请求失败: \(error.localizedDescription)")
             }
         }
     }
@@ -356,6 +412,7 @@ extension StatusBarController {
     private func setupUpdateChecker() {
         // 后台自动检测回调（只在有更新时触发）
         UpdateChecker.shared.onUpdateAvailable = { [weak self] releaseInfo in
+            Logger.info("后台检测到新版本: \(releaseInfo.version)")
             self?.showUpdateWindow(result: .hasUpdate(releaseInfo))
         }
 

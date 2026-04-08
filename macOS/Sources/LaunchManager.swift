@@ -6,21 +6,39 @@ class LaunchManager {
 
     private let launchAgentLabel = "cn.ehaut.networkguard"
     private let launchAgentsPath: String
+    private let logDirectory: String
 
     private init() {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         launchAgentsPath = "\(home)/Library/LaunchAgents"
+        logDirectory = "\(home)/Library/Logs/HAUTNetworkGuard"
     }
 
     private var plistPath: String {
         return "\(launchAgentsPath)/\(launchAgentLabel).plist"
     }
 
+    private var executablePath: String {
+        "/Applications/HAUTNetworkGuard.app/Contents/MacOS/HAUTNetworkGuard"
+    }
+
+    private var stdoutPath: String {
+        "\(logDirectory)/launchd.stdout.log"
+    }
+
+    private var stderrPath: String {
+        "\(logDirectory)/launchd.stderr.log"
+    }
+
     /// 是否已启用开机自启动
     var isEnabled: Bool {
-        let exists = FileManager.default.fileExists(atPath: plistPath)
-        Logger.debug("检查开机自启动状态: exists=\(exists), path=\(plistPath)")
-        return exists
+        guard let plist = loadPlist() else {
+            Logger.debug("检查开机自启动状态: plist 不存在 path=\(plistPath)")
+            return false
+        }
+        let matches = plistMatchesExpected(plist)
+        Logger.debug("检查开机自启动状态: matches=\(matches), path=\(plistPath)")
+        return matches
     }
 
     /// 启用开机自启动
@@ -38,10 +56,19 @@ class LaunchManager {
             }
         }
 
-        // 使用固定的 Applications 路径
-        let executablePath = "/Applications/HAUTNetworkGuard.app/Contents/MacOS/HAUTNetworkGuard"
         if !FileManager.default.fileExists(atPath: executablePath) {
             Logger.warn("启用开机自启动时未找到应用可执行文件: \(executablePath)")
+        }
+
+        if !FileManager.default.fileExists(atPath: logDirectory) {
+            do {
+                try FileManager.default.createDirectory(
+                    atPath: logDirectory,
+                    withIntermediateDirectories: true
+                )
+            } catch {
+                Logger.warn("创建 LaunchAgent 日志目录失败: \(error)")
+            }
         }
 
         // 创建 plist 内容
@@ -49,7 +76,9 @@ class LaunchManager {
             "Label": launchAgentLabel,
             "ProgramArguments": [executablePath],
             "RunAtLoad": true,
-            "KeepAlive": false
+            "KeepAlive": true,
+            "StandardOutPath": stdoutPath,
+            "StandardErrorPath": stderrPath
         ]
 
         // 序列化 plist
@@ -64,7 +93,7 @@ class LaunchManager {
 
         // 写入文件
         do {
-            try data.write(to: URL(fileURLWithPath: plistPath))
+            try data.write(to: URL(fileURLWithPath: plistPath), options: .atomic)
             Logger.log("开机自启动 plist 已写入: \(plistPath)")
             _ = runLaunchctl(arguments: ["unload", plistPath], tolerateFailure: true)
             if runLaunchctl(arguments: ["load", plistPath], tolerateFailure: false) {
@@ -132,5 +161,21 @@ class LaunchManager {
             }
             return false
         }
+    }
+
+    private func loadPlist() -> [String: Any]? {
+        guard let data = FileManager.default.contents(atPath: plistPath),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {
+            return nil
+        }
+        return plist
+    }
+
+    private func plistMatchesExpected(_ plist: [String: Any]) -> Bool {
+        let args = plist["ProgramArguments"] as? [String] ?? []
+        let keepAlive = plist["KeepAlive"] as? Bool ?? false
+        let out = plist["StandardOutPath"] as? String ?? ""
+        let err = plist["StandardErrorPath"] as? String ?? ""
+        return args == [executablePath] && keepAlive && out == stdoutPath && err == stderrPath
     }
 }

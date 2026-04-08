@@ -28,11 +28,11 @@ int main(int argc, char *argv[]) {
   const bool startInBackground =
       args.contains("--startup", Qt::CaseInsensitive);
   Logger::info(QString("应用启动 (版本: %1, 路径: %2, 参数: %3, 启动模式: %4)")
-                   .arg(QCoreApplication::applicationVersion(),
-                        QDir::toNativeSeparators(
-                            QCoreApplication::applicationFilePath()),
-                        args.join(" "),
-                        startInBackground ? "background" : "normal"));
+                   .arg(QCoreApplication::applicationVersion())
+                   .arg(QDir::toNativeSeparators(
+                       QCoreApplication::applicationFilePath()))
+                   .arg(args.join(" "))
+                   .arg(startInBackground ? "background" : "normal"));
 
   // 创建主窗口
   MainWindow mainWindow;

@@ -2,10 +2,12 @@
 #include "config.h"
 #include "logger.h"
 #include <QApplication>
+#include <QDateTime>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QMessageBox>
+#include <QtGlobal>
 #include <QVBoxLayout>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
@@ -161,14 +163,16 @@ void MainWindow::loadSettings() {
   m_autoLaunchCheck->setChecked(config.autoLaunch());
   m_autoLoginCheck->setChecked(config.autoLogin());
   m_intervalSpinBox->setValue(config.checkInterval());
+  m_autoLoginRetryIntervalMs = qMax(60000, config.checkInterval() * 1000);
 
   Logger::debug(QString("设置已加载到 UI (用户: %1, 记住密码: %2, 开机自启: %3, "
-                        "自动登录: %4, 间隔: %5)")
-                    .arg(config.username())
+                        "自动登录: %4, 间隔: %5, 自动重试冷却: %6ms)")
+                    .arg(Logger::maskUsername(config.username()))
                     .arg(config.autoSave() ? "on" : "off")
                     .arg(config.autoLaunch() ? "on" : "off")
                     .arg(config.autoLogin() ? "on" : "off")
-                    .arg(config.checkInterval()));
+                    .arg(config.checkInterval())
+                    .arg(m_autoLoginRetryIntervalMs));
 }
 
 void MainWindow::saveSettings() {
@@ -186,12 +190,14 @@ void MainWindow::saveSettings() {
 
   // 更新定时器间隔
   m_statusTimer->setInterval(config.checkInterval() * 1000);
+  m_autoLoginRetryIntervalMs = qMax(60000, config.checkInterval() * 1000);
   Logger::info(QString("设置已应用 (用户: %1, 开机自启: %2, 自动登录: %3, "
-                       "间隔: %4s)")
-                   .arg(config.username())
+                       "间隔: %4s, 自动重试冷却: %5ms)")
+                   .arg(Logger::maskUsername(config.username()))
                    .arg(config.autoLaunch() ? "on" : "off")
                    .arg(config.autoLogin() ? "on" : "off")
-                   .arg(config.checkInterval()));
+                   .arg(config.checkInterval())
+                   .arg(m_autoLoginRetryIntervalMs));
 }
 
 void MainWindow::syncCredentialsToConfig() {
@@ -200,7 +206,7 @@ void MainWindow::syncCredentialsToConfig() {
   config.setPassword(m_passwordEdit->text());
   config.save();
   Logger::debug(QString("凭据已同步到配置 (用户: %1, 密码长度: %2)")
-                    .arg(config.username())
+                    .arg(Logger::maskUsername(config.username()))
                     .arg(m_passwordEdit->text().length()));
 }
 
@@ -213,8 +219,10 @@ void MainWindow::onLoginClicked() {
     return;
   }
 
-  if (m_isLoggingIn)
+  if (m_isLoggingIn) {
+    Logger::debug("忽略手动登录：已有登录流程进行中");
     return;
+  }
 
   // 同步凭据到 Config，确保自动重连可用
   syncCredentialsToConfig();
@@ -224,7 +232,8 @@ void MainWindow::onLoginClicked() {
   m_loginBtn->setEnabled(false);
   m_loginBtn->setText("登录中...");
 
-  Logger::info(QString("手动登录: %1").arg(username));
+  Logger::info(QString("手动登录触发: %1")
+                   .arg(Logger::maskUsername(username)));
   m_api->login(username, password);
 }
 
@@ -269,6 +278,28 @@ void MainWindow::onLoginFailed(const QString &error) {
   m_isManualLogin = false;
 }
 
+void MainWindow::triggerAutoLoginIfPossible(const QString &reason) {
+  if (m_isLoggingIn || !Config::instance().autoLogin()) {
+    return;
+  }
+
+  QString username = Config::instance().username();
+  QString password = Config::instance().password();
+  if (username.isEmpty() || password.isEmpty()) {
+    Logger::warn(QString("%1 自动登录被跳过：未保存凭据").arg(reason));
+    return;
+  }
+
+  m_isLoggingIn = true;
+  m_isManualLogin = false;
+  m_lastAutoLoginAttemptMs = QDateTime::currentMSecsSinceEpoch();
+  Logger::info(QString("%1 自动登录触发 (用户: %2, 密码长度: %3)")
+                   .arg(reason)
+                   .arg(Logger::maskUsername(username))
+                   .arg(password.length()));
+  m_api->login(username, password);
+}
+
 void MainWindow::onLogoutSuccess() {
   m_logoutBtn->setEnabled(true);
   m_logoutBtn->setText("注销");
@@ -300,23 +331,21 @@ void MainWindow::onStatusChecked(bool online, const QString &ip,
   updateStatusDisplay(online, ip, bytesUsed, secondsOnline);
   m_trayIcon->setOnlineStatus(online);
 
-  // 如果离线且开启了自动登录，尝试自动重连
-  // 条件：从在线变为离线（掉线重连），且没有正在进行的登录
-  if (!online && wasOnline && !m_isLoggingIn &&
-      Config::instance().autoLogin()) {
-    QString username = Config::instance().username();
-    QString password = Config::instance().password();
+  if (!online && Config::instance().autoLogin()) {
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const bool cooldownElapsed =
+        (m_lastAutoLoginAttemptMs == 0) ||
+        (now - m_lastAutoLoginAttemptMs >= m_autoLoginRetryIntervalMs);
 
-    if (!username.isEmpty() && !password.isEmpty()) {
-      Logger::info(QString("掉线重连触发 (用户: %1, 密码长度: %2)")
-                       .arg(username)
-                       .arg(password.length()));
-      m_isLoggingIn = true;
-      m_isManualLogin = false;
-      m_api->login(username, password);
-    } else {
-      Logger::warn("掉线重连被跳过：未保存凭据");
+    // 优先处理在线->离线的边沿；持续离线场景按冷却重试。
+    if (wasOnline) {
+      triggerAutoLoginIfPossible("掉线重连");
+    } else if (cooldownElapsed) {
+      triggerAutoLoginIfPossible("离线重试");
     }
+  } else if (online) {
+    // 在线后重置重试时钟，后续若再次掉线可立即触发重连。
+    m_lastAutoLoginAttemptMs = 0;
   }
 }
 
@@ -331,19 +360,7 @@ void MainWindow::tryAutoLogin() {
                     .arg(Config::instance().autoLogin() ? "true" : "false"));
 
   if (!m_isOnline && !m_isLoggingIn && Config::instance().autoLogin()) {
-    QString username = Config::instance().username();
-    QString password = Config::instance().password();
-
-    if (!username.isEmpty() && !password.isEmpty()) {
-      Logger::info(QString("启动自动登录触发 (用户: %1, 密码长度: %2)")
-                       .arg(username)
-                       .arg(password.length()));
-      m_isLoggingIn = true;
-      m_isManualLogin = false;
-      m_api->login(username, password);
-    } else {
-      Logger::warn("启动自动登录被跳过：未保存凭据");
-    }
+    triggerAutoLoginIfPossible("启动自动登录");
   } else {
     Logger::debug("启动自动登录条件未满足");
   }
