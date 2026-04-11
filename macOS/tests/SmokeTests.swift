@@ -28,17 +28,26 @@ struct SmokeTests {
 
         AppConfig.shared.clear()
         AppConfig.shared.save(
-            username: "231040600203",
+            username: " 231040600203 \n",
             password: "password123",
             autoSave: false,
             checkInterval: 45,
             autoLogin: true
         )
+        expect(AppConfig.shared.username == "231040600203", "用户名保存时应自动清洗空白")
         expect(UserDefaults.standard.string(forKey: "haut_password") == nil, "未勾选记住密码时不应持久化密码")
 
         AppConfig.shared.password = "session-only"
         expect(AppConfig.shared.password == "session-only", "会话密码应可读回")
         expect(UserDefaults.standard.string(forKey: "haut_password") == nil, "会话密码不应落盘")
+
+        let unparsed = SrunProtocol.parseStatusResponse("unexpected body")
+        expect(!unparsed.online, "无法解析的状态响应不应判定为在线")
+        expect(unparsed.format == "unparsed", "无法解析的状态响应应标记为 unparsed")
+
+        let invalidCsv = SrunProtocol.parseStatusResponse("oops,NaN,not-an-ip,garbage")
+        expect(!invalidCsv.online, "异常 CSV 响应不应判定为在线")
+        expect(invalidCsv.format == "unparsed", "异常 CSV 响应应标记为 unparsed")
 
         AppConfig.shared.clear()
         print("macOS smoke tests passed")

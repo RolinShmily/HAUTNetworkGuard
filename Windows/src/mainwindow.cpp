@@ -11,7 +11,7 @@
 #include <QVBoxLayout>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
-  setWindowTitle("HAUT Network Guard v1.3.15");
+  setWindowTitle("HAUT Network Guard v1.3.16");
   setFixedSize(400, 550);
   Logger::debug("MainWindow 初始化开始");
 
@@ -37,6 +37,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   connect(m_trayIcon, &TrayIcon::logoutRequested, this,
           &MainWindow::onLogoutClicked);
   m_trayIcon->show();
+  refreshActionState();
   Logger::info("系统托盘已初始化");
 
   // 状态检测定时器 (使用配置的间隔)
@@ -178,7 +179,9 @@ void MainWindow::loadSettings() {
 void MainWindow::saveSettings() {
   Config &config = Config::instance();
 
-  config.setUsername(m_usernameEdit->text());
+  const QString trimmedUsername = m_usernameEdit->text().trimmed();
+  m_usernameEdit->setText(trimmedUsername);
+  config.setUsername(trimmedUsername);
   config.setPassword(m_passwordEdit->text());
   config.setAutoSave(m_autoSaveCheck->isChecked());
   config.setAutoLaunch(m_autoLaunchCheck->isChecked());
@@ -201,7 +204,9 @@ void MainWindow::saveSettings() {
 
 void MainWindow::syncCredentialsToConfig() {
   Config &config = Config::instance();
-  config.setUsername(m_usernameEdit->text().trimmed());
+  const QString trimmedUsername = m_usernameEdit->text().trimmed();
+  m_usernameEdit->setText(trimmedUsername);
+  config.setUsername(trimmedUsername);
   config.setPassword(m_passwordEdit->text());
   config.save();
   Logger::debug(QString("凭据已同步到配置 (用户: %1, 密码长度: %2)")
@@ -218,18 +223,19 @@ void MainWindow::onLoginClicked() {
     return;
   }
 
-  if (m_isLoggingIn) {
-    Logger::debug("忽略手动登录：已有登录流程进行中");
+  if (m_isLoggingIn || m_isLoggingOut) {
+    Logger::debug("忽略手动登录：已有操作进行中");
     return;
   }
 
   // 同步凭据到 Config，确保自动重连可用
   syncCredentialsToConfig();
 
+  m_manualOfflineHold = false;
   m_isLoggingIn = true;
   m_isManualLogin = true;
-  m_loginBtn->setEnabled(false);
   m_loginBtn->setText("登录中...");
+  refreshActionState();
 
   Logger::info(QString("手动登录触发: %1")
                    .arg(Logger::maskUsername(username)));
@@ -237,12 +243,15 @@ void MainWindow::onLoginClicked() {
 }
 
 void MainWindow::onLogoutClicked() {
-  if (m_isLoggingIn)
+  if (m_isLoggingIn || m_isLoggingOut)
     return;
 
-  m_logoutBtn->setEnabled(false);
+  m_isLoggingOut = true;
+  m_manualOfflineHold = m_isOnline;
   m_logoutBtn->setText("注销中...");
-  Logger::info("手动注销触发");
+  refreshActionState();
+  Logger::info(QString("手动注销触发 (online=%1)")
+                   .arg(m_isOnline ? "true" : "false"));
 
   m_api->logout();
 }
@@ -254,8 +263,9 @@ void MainWindow::onSaveClicked() {
 
 void MainWindow::onLoginSuccess(const QString &message) {
   m_isLoggingIn = false;
-  m_loginBtn->setEnabled(true);
   m_loginBtn->setText("登录");
+  m_manualOfflineHold = false;
+  refreshActionState();
 
   Logger::info(QString("登录成功: %1").arg(message));
   m_trayIcon->showMessage("登录成功", message);
@@ -265,8 +275,8 @@ void MainWindow::onLoginSuccess(const QString &message) {
 
 void MainWindow::onLoginFailed(const QString &error) {
   m_isLoggingIn = false;
-  m_loginBtn->setEnabled(true);
   m_loginBtn->setText("登录");
+  refreshActionState();
 
   Logger::warn(QString("登录失败: %1").arg(error));
   m_trayIcon->showMessage("登录失败", error, QSystemTrayIcon::Warning);
@@ -278,7 +288,11 @@ void MainWindow::onLoginFailed(const QString &error) {
 }
 
 void MainWindow::triggerAutoLoginIfPossible(const QString &reason) {
-  if (m_isLoggingIn || !Config::instance().autoLogin()) {
+  if (m_isLoggingIn || m_isLoggingOut || !Config::instance().autoLogin()) {
+    return;
+  }
+  if (m_manualOfflineHold) {
+    Logger::info(QString("%1 自动登录被抑制：用户手动注销后保持离线").arg(reason));
     return;
   }
 
@@ -296,41 +310,78 @@ void MainWindow::triggerAutoLoginIfPossible(const QString &reason) {
                    .arg(reason)
                    .arg(Logger::maskUsername(username))
                    .arg(password.length()));
+  refreshActionState();
   m_api->login(username, password);
 }
 
-void MainWindow::onLogoutSuccess() {
-  m_logoutBtn->setEnabled(true);
+void MainWindow::onLogoutSuccess(const QString &resultClass) {
+  m_isLoggingOut = false;
   m_logoutBtn->setText("注销");
+  if (resultClass == "not_online") {
+    m_manualOfflineHold = false;
+  }
 
-  m_trayIcon->showMessage("注销成功", "已退出网络");
+  m_isOnline = false;
+  m_lastAutoLoginAttemptMs = 0;
   updateStatusDisplay(false);
+  refreshActionState();
+  if (resultClass == "not_online") {
+    m_trayIcon->showMessage("提示", "当前未在线");
+  } else {
+    m_trayIcon->showMessage("注销成功", "已退出网络");
+  }
 }
 
 void MainWindow::onLogoutFailed(const QString &error) {
-  m_logoutBtn->setEnabled(true);
+  m_isLoggingOut = false;
   m_logoutBtn->setText("注销");
+  m_manualOfflineHold = false;
+  refreshActionState();
 
   QMessageBox::warning(this, "注销失败", error);
 }
 
-void MainWindow::onStatusChecked(bool online, const QString &ip,
+void MainWindow::onStatusChecked(bool online, const QString &resultClass,
+                                 const QString &ip,
                                  qint64 bytesUsed, qint64 secondsOnline) {
   bool wasOnline = m_isOnline;
-  m_isOnline = online;
 
-  Logger::debug(QString("状态检测完成 (wasOnline=%1, online=%2, ip=%3, bytes=%4, "
-                        "seconds=%5)")
+  Logger::debug(QString("状态检测完成 (wasOnline=%1, online=%2, class=%3, ip=%4, bytes=%5, "
+                        "seconds=%6)")
                     .arg(wasOnline ? "true" : "false")
                     .arg(online ? "true" : "false")
+                    .arg(resultClass)
                     .arg(ip)
                     .arg(bytesUsed)
                     .arg(secondsOnline));
 
+  if (!online && resultClass != "offline") {
+    m_statusLabel->setText("🟡 检测失败");
+    m_statusLabel->setStyleSheet(
+        "font-size: 18px; font-weight: bold; color: #FF9800;");
+    if (!wasOnline) {
+      m_ipLabel->setText("-");
+      m_usageLabel->setText("-");
+      m_timeLabel->setText("-");
+    }
+    Logger::warn(QString("状态检测异常，保持当前在线状态不变: class=%1")
+                     .arg(resultClass));
+    return;
+  }
+
+  m_isOnline = online;
   updateStatusDisplay(online, ip, bytesUsed, secondsOnline);
-  m_trayIcon->setOnlineStatus(online);
+
+  if (online) {
+    m_manualOfflineHold = false;
+  }
+  refreshActionState();
 
   if (!online && Config::instance().autoLogin()) {
+    if (m_manualOfflineHold) {
+      Logger::debug("状态已离线，但当前处于手动离线保持模式，跳过自动登录");
+      return;
+    }
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const bool cooldownElapsed =
         (m_lastAutoLoginAttemptMs == 0) ||
@@ -345,6 +396,17 @@ void MainWindow::onStatusChecked(bool online, const QString &ip,
   } else if (online) {
     // 在线后重置重试时钟，后续若再次掉线可立即触发重连。
     m_lastAutoLoginAttemptMs = 0;
+  }
+}
+
+void MainWindow::refreshActionState() {
+  const bool busy = m_isLoggingIn || m_isLoggingOut;
+  m_loginBtn->setEnabled(!busy && !m_isOnline);
+  m_logoutBtn->setEnabled(!busy && m_isOnline);
+
+  if (m_trayIcon) {
+    m_trayIcon->setBusy(busy);
+    m_trayIcon->setOnlineStatus(m_isOnline);
   }
 }
 

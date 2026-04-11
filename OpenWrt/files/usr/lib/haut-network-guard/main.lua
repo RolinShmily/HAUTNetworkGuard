@@ -2,7 +2,7 @@
 -- HAUT Network Guard - OpenWrt 版本
 -- 主程序入口
 
-local VERSION = "1.3.15"
+local VERSION = "1.3.16"
 
 package.path = package.path .. ";/usr/lib/haut-network-guard/?.lua"
 
@@ -150,6 +150,7 @@ local function main()
     local previous_online = nil
     local consecutive_failures = 0
     local last_login_error = ""
+    local last_status_issue = ""
 
     while true do
         log.refresh_level()
@@ -169,7 +170,7 @@ local function main()
         elseif config.username == "" or config.password == "" then
             log.error("未配置用户名或密码，等待下一轮检测")
         else
-            local user_info = api.get_user_info("monitor_loop")
+            local user_info, status_class = api.get_user_info("monitor_loop")
 
             if user_info then
                 if previous_online ~= true then
@@ -178,6 +179,7 @@ local function main()
                 previous_online = true
                 consecutive_failures = 0
                 last_login_error = ""
+                last_status_issue = ""
                 log.info(string.format(
                     "在线 - user=%s, IP=%s, 流量=%s, 时长=%s",
                     log.mask_username(user_info.username),
@@ -185,11 +187,12 @@ local function main()
                     format_bytes(user_info.bytes),
                     format_time(user_info.seconds)
                 ))
-            else
+            elseif status_class == "offline" then
                 if previous_online ~= false then
                     log.warn("状态迁移: online -> offline")
                 end
                 previous_online = false
+                last_status_issue = ""
                 log.warn("离线，触发自动登录")
 
                 local success, msg, category = api.login(
@@ -226,6 +229,17 @@ local function main()
                             backoff, consecutive_failures
                         ))
                     end
+                end
+            else
+                local issue = tostring(status_class or "unknown")
+                if issue ~= last_status_issue then
+                    log.warn(string.format(
+                        "状态检测异常，跳过自动登录: class=%s",
+                        issue
+                    ))
+                    last_status_issue = issue
+                else
+                    log.debug("状态检测异常持续存在，继续等待下一轮检测")
                 end
             end
         end

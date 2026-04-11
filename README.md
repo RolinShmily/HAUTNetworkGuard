@@ -60,7 +60,7 @@
 
 **固定版本安装（推荐生产环境）：**
 ```bash
-wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.15/OpenWrt/install-online.sh | sh -s -- v1.3.15
+wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.16/OpenWrt/install-online.sh | sh -s -- v1.3.16
 ```
 
 **安装最新 main（适合测试）：**
@@ -252,6 +252,24 @@ cd OpenWrt
 ```
 
 ## 版本历史
+
+### v1.3.16 (2026-04)
+- **Windows**: 修复开机自启动与交互状态机收口问题
+  - 自启动改为注册表 `Run` 主链路，避免与 Startup 兜底脚本双重触发导致双实例竞争
+  - 手动注销对 `not_online` 结果不再错误进入“保持离线”状态
+  - 主窗口与托盘菜单统一在线/离线/忙碌态，托盘图标新增在线/离线状态标识
+- **macOS**: 修复首次运行与菜单栏生命周期边界
+  - 首次运行关闭设置窗口时改为安全退出，避免 `LSUIElement` 模式下进入不可恢复隐藏状态
+  - 手动注销对“当前未在线”结果不再误伤自动登录
+  - 修复关于窗口控制器释放、更新检查重复触发和物理网卡解析冷启动竞态
+- **OpenWrt**: 强化网络错误分类、升级幂等与脚本安全性
+  - `curl` 退出码进入日志与状态分类，空状态响应重新按协议判定为离线
+  - 升级脚本新增版本方向提示、分阶段下载和失败回滚
+  - 卸载脚本默认保留配置，需显式 `--purge-config` 才删除
+- **协议/测试**: 收紧三端 CSV 状态解析，避免脏响应被误判为在线
+  - Windows/macOS/OpenWrt 协议解析统一校验 IPv4 和数值字段
+  - 新增跨平台异常 CSV 响应回归用例
+- **全平台**: 版本号同步更新为 1.3.16
 
 ### v1.3.15 (2026-04)
 - **文档**: 修正文档与当前代码、Release 资产和安装链路的不一致

@@ -26,9 +26,10 @@ public:
 signals:
   void loginSuccess(const QString &message);
   void loginFailed(const QString &error);
-  void logoutSuccess();
+  void logoutSuccess(const QString &resultClass);
   void logoutFailed(const QString &error);
-  void statusChecked(bool online, const QString &ip, qint64 bytesUsed,
+  void statusChecked(bool online, const QString &resultClass,
+                     const QString &ip, qint64 bytesUsed,
                      qint64 secondsOnline);
 
 private slots:

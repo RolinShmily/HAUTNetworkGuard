@@ -26,12 +26,16 @@ mkdir -p /usr/lib/haut-network-guard
 echo "[3/5] 复制文件..."
 cp -f files/usr/lib/haut-network-guard/*.lua /usr/lib/haut-network-guard/
 cp -f files/etc/init.d/haut-network-guard /etc/init.d/
-cp -f files/etc/config/haut-network-guard /etc/config/
+if [ -f /etc/config/haut-network-guard ]; then
+    echo "      检测到现有配置，保留 /etc/config/haut-network-guard"
+else
+    cp -f files/etc/config/haut-network-guard /etc/config/
+fi
 
 # 设置权限
 echo "[4/5] 设置权限..."
 chmod +x /etc/init.d/haut-network-guard
-chmod 600 /etc/config/haut-network-guard
+[ -f /etc/config/haut-network-guard ] && chmod 600 /etc/config/haut-network-guard
 
 # 启用服务
 echo "[5/5] 启用服务..."
@@ -39,7 +43,7 @@ echo "[5/5] 启用服务..."
 
 echo ""
 echo "=========================================="
-echo "  安装完成! (v1.3.15)"
+echo "  安装完成! (v1.3.16)"
 echo "=========================================="
 echo ""
 echo "配置方法:"

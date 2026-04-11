@@ -4,6 +4,26 @@
 #include <QRegularExpression>
 #include <QStringList>
 
+namespace {
+
+bool isValidIpv4(const QString &value) {
+  const QStringList octets = value.split('.');
+  if (octets.size() != 4) {
+    return false;
+  }
+
+  for (const QString &octet : octets) {
+    bool ok = false;
+    const int part = octet.toInt(&ok);
+    if (!ok || part < 0 || part > 255) {
+      return false;
+    }
+  }
+  return true;
+}
+
+} // namespace
+
 QString ProtocolUtils::responsePreview(const QString &response, int maxLen) {
   QString normalized = response;
   normalized.replace('\r', ' ');
@@ -89,12 +109,19 @@ StatusParseResult ProtocolUtils::parseStatusResponse(const QString &response) {
   }
 
   QStringList parts = trimmed.split(',');
-  if (parts.size() >= 4) {
+  bool secondsOk = false;
+  bool bytesOk = false;
+  const qint64 seconds = parts.size() >= 2 ? parts[1].toLongLong(&secondsOk)
+                                           : 0;
+  const qint64 bytes =
+      parts.size() >= 4 ? parts[3].toLongLong(&bytesOk) : 0;
+  if (parts.size() >= 4 && !parts[0].isEmpty() && secondsOk &&
+      bytesOk && isValidIpv4(parts[2])) {
     result.format = "csv";
     result.username = parts[0];
-    result.seconds = parts[1].toLongLong();
+    result.seconds = seconds;
     result.ip = parts[2];
-    result.bytes = parts[3].toLongLong();
+    result.bytes = bytes;
     result.online = true;
     return result;
   }

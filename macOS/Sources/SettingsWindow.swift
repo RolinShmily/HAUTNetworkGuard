@@ -1,10 +1,14 @@
 import Cocoa
 
 /// 设置窗口控制器
-class SettingsWindowController: NSWindowController {
+class SettingsWindowController: NSWindowController, NSWindowDelegate {
     var onSave: (() -> Void)?
+    var onCloseWithoutSave: (() -> Void)?
 
-    convenience init() {
+    private var requiresInitialConfiguration = false
+    private var didPersistSettings = false
+
+    convenience init(isInitialSetup: Bool = false) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 400),
             styleMask: [.titled, .closable],
@@ -14,6 +18,8 @@ class SettingsWindowController: NSWindowController {
         window.title = "账号设置"
         window.center()
         self.init(window: window)
+        requiresInitialConfiguration = isInitialSetup
+        window.delegate = self
         setupUI()
     }
 
@@ -24,6 +30,7 @@ class SettingsWindowController: NSWindowController {
     private var autoLoginCheckbox: NSButton!
     private var intervalSlider: NSSlider!
     private var intervalLabel: NSTextField!
+    private var saveButton: NSButton!
 
     private func setupUI() {
         guard let window = window else { return }
@@ -121,7 +128,11 @@ class SettingsWindowController: NSWindowController {
         contentView.addSubview(hintLabel)
 
         // 保存按钮
-        let saveButton = NSButton(title: "保存并启动", target: self, action: #selector(saveAction))
+        saveButton = NSButton(
+            title: AppConfig.shared.hasConfigured ? "保存设置" : "保存并启动",
+            target: self,
+            action: #selector(saveAction)
+        )
         saveButton.bezelStyle = .rounded
         saveButton.frame = NSRect(x: 280, y: 20, width: 100, height: 32)
         contentView.addSubview(saveButton)
@@ -140,7 +151,7 @@ class SettingsWindowController: NSWindowController {
     }
 
     @objc private func saveAction() {
-        let username = usernameField.stringValue.trimmingCharacters(in: .whitespaces)
+        let username = usernameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let password = passwordField.stringValue
 
         if username.isEmpty || password.isEmpty {
@@ -177,11 +188,18 @@ class SettingsWindowController: NSWindowController {
             alert.runModal()
         }
 
+        didPersistSettings = true
         window?.close()
         onSave?()
         
         // 通知重启定时器
         NotificationCenter.default.post(name: .checkIntervalChanged, object: nil)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        if requiresInitialConfiguration && !didPersistSettings {
+            onCloseWithoutSave?()
+        }
     }
 }
 

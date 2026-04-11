@@ -16,6 +16,7 @@ public:
   void hide();
 
   void setOnlineStatus(bool online);
+  void setBusy(bool busy);
   void
   showMessage(const QString &title, const QString &message,
               QSystemTrayIcon::MessageIcon icon = QSystemTrayIcon::Information);
@@ -32,6 +33,7 @@ private slots:
 private:
   void createMenu();
   void updateIcon(bool online);
+  void updateActionStates();
 
   QSystemTrayIcon *m_trayIcon;
   QMenu *m_menu;
@@ -39,6 +41,8 @@ private:
   QAction *m_loginAction;
   QAction *m_logoutAction;
   QAction *m_exitAction;
+  bool m_online = false;
+  bool m_busy = false;
 };
 
 #endif // TRAYICON_H

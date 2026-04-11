@@ -6,6 +6,8 @@ import Network
 /// 彻底绕过 TUN 路由和系统代理设置
 class DirectHTTPClient {
     private let queue = DispatchQueue(label: "DirectHTTPClient")
+    private let stateQueue = DispatchQueue(label: "DirectHTTPClient.state")
+    private let monitorQueue = DispatchQueue(label: "DirectHTTPClient.monitor")
     private var interfaceName: String?
     private let monitor: NWPathMonitor
     private let timeout: TimeInterval
@@ -16,7 +18,7 @@ class DirectHTTPClient {
         self.monitor.pathUpdateHandler = { [weak self] path in
             self?.updateInterface(from: path)
         }
-        self.monitor.start(queue: queue)
+        self.monitor.start(queue: monitorQueue)
         updateInterface(from: monitor.currentPath)
     }
 
@@ -27,19 +29,24 @@ class DirectHTTPClient {
     /// 从网络路径中选取物理接口（优先有线，其次 WiFi）
     private func updateInterface(from path: NWPath) {
         let interfaces = path.availableInterfaces
+        let resolvedName: String?
         if let wired = interfaces.first(where: { $0.type == .wiredEthernet }) {
-            interfaceName = wired.name
+            resolvedName = wired.name
             Logger.info("[DirectHTTP] 使用有线接口: \(wired.name)")
         } else if let wifi = interfaces.first(where: { $0.type == .wifi }) {
-            interfaceName = wifi.name
+            resolvedName = wifi.name
             Logger.info("[DirectHTTP] 使用 WiFi 接口: \(wifi.name)")
         } else {
-            interfaceName = interfaces.first?.name
-            if let name = interfaceName {
+            resolvedName = interfaces.first?.name
+            if let name = resolvedName {
                 Logger.info("[DirectHTTP] 使用接口: \(name)")
             } else {
                 Logger.warn("[DirectHTTP] 未找到可用物理接口")
             }
+        }
+
+        stateQueue.sync {
+            interfaceName = resolvedName
         }
     }
 
@@ -99,7 +106,7 @@ class DirectHTTPClient {
             }
 
             // 绑定到物理接口（绕过 TUN 路由和代理）
-            if let ifName = self.interfaceName {
+            if let ifName = self.waitForInterfaceName(timeout: 1.0) {
                 let ifIndex = if_nametoindex(ifName)
                 if ifIndex > 0 {
                     var idx = ifIndex
@@ -111,6 +118,8 @@ class DirectHTTPClient {
                         Logger.warn("[DirectHTTP] 绑定接口失败: \(ifName), errno=\(errno)")
                     }
                 }
+            } else {
+                Logger.warn("[DirectHTTP] 请求开始时仍未解析到物理接口，将使用系统默认路由")
             }
 
             // 设置超时
@@ -141,13 +150,10 @@ class DirectHTTPClient {
                 completion(.failure(HTTPError.invalidURL))
                 return
             }
-            let sent = requestData.withUnsafeBytes { ptr in
-                Darwin.send(fd, ptr.baseAddress!, requestData.count, 0)
-            }
-            if sent < 0 {
-                let err = errno
+            let sent = self.sendAll(fd: fd, data: requestData)
+            if let sentError = sent {
                 Darwin.close(fd)
-                completion(.failure(HTTPError.socketError("send() 失败, errno=\(err)")))
+                completion(.failure(sentError))
                 return
             }
 
@@ -156,7 +162,17 @@ class DirectHTTPClient {
             var buffer = [UInt8](repeating: 0, count: 65536)
             while true {
                 let n = recv(fd, &buffer, buffer.count, 0)
-                if n <= 0 { break }
+                if n == 0 { break }
+                if n < 0 {
+                    let err = errno
+                    Darwin.close(fd)
+                    if err == ETIMEDOUT {
+                        completion(.failure(HTTPError.timeout))
+                    } else {
+                        completion(.failure(HTTPError.socketError("recv() 失败, errno=\(err)")))
+                    }
+                    return
+                }
                 responseData.append(buffer, count: n)
             }
             Darwin.close(fd)
@@ -230,6 +246,49 @@ class DirectHTTPClient {
             path += "?\(query)"
         }
         return ParsedURL(host: host, port: port, path: path)
+    }
+
+    private func currentInterfaceName() -> String? {
+        stateQueue.sync { interfaceName }
+    }
+
+    private func waitForInterfaceName(timeout: TimeInterval) -> String? {
+        if let name = currentInterfaceName() {
+            return name
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+            if let name = currentInterfaceName() {
+                return name
+            }
+        }
+        return currentInterfaceName()
+    }
+
+    private func sendAll(fd: Int32, data: Data) -> HTTPError? {
+        return data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else {
+                return HTTPError.invalidURL
+            }
+
+            let basePointer = baseAddress.assumingMemoryBound(to: UInt8.self)
+            var offset = 0
+            while offset < data.count {
+                let sent = Darwin.send(fd, basePointer.advanced(by: offset), data.count - offset, 0)
+                if sent <= 0 {
+                    let err = errno
+                    if err == ETIMEDOUT {
+                        return HTTPError.timeout
+                    }
+                    return HTTPError.socketError("send() 失败, errno=\(err)")
+                }
+                offset += sent
+            }
+
+            return nil
+        }
     }
 
     enum HTTPError: Error, CustomStringConvertible {

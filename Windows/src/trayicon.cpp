@@ -1,6 +1,9 @@
 #include "trayicon.h"
 #include <QApplication>
+#include <QColor>
 #include <QIcon>
+#include <QPainter>
+#include <QPixmap>
 #include <QStyle>
 
 TrayIcon::TrayIcon(QObject *parent) : QObject(parent) {
@@ -8,6 +11,7 @@ TrayIcon::TrayIcon(QObject *parent) : QObject(parent) {
 
   createMenu();
   updateIcon(false);
+  updateActionStates();
 
   connect(m_trayIcon, &QSystemTrayIcon::activated, this,
           &TrayIcon::onTrayActivated);
@@ -42,9 +46,16 @@ void TrayIcon::show() { m_trayIcon->show(); }
 void TrayIcon::hide() { m_trayIcon->hide(); }
 
 void TrayIcon::setOnlineStatus(bool online) {
+  m_online = online;
   updateIcon(online);
+  updateActionStates();
   m_trayIcon->setToolTip(online ? "HAUT Network Guard - 在线"
                                 : "HAUT Network Guard - 离线");
+}
+
+void TrayIcon::setBusy(bool busy) {
+  m_busy = busy;
+  updateActionStates();
 }
 
 void TrayIcon::showMessage(const QString &title, const QString &message,
@@ -53,13 +64,34 @@ void TrayIcon::showMessage(const QString &title, const QString &message,
 }
 
 void TrayIcon::updateIcon(bool online) {
-  // 使用应用程序图标
-  QIcon icon = QApplication::windowIcon();
-  if (icon.isNull()) {
-    // 使用系统默认图标
-    icon = QApplication::style()->standardIcon(QStyle::SP_ComputerIcon);
+  QIcon baseIcon = QApplication::windowIcon();
+  if (baseIcon.isNull()) {
+    baseIcon = QApplication::style()->standardIcon(QStyle::SP_ComputerIcon);
   }
-  m_trayIcon->setIcon(icon);
+
+  QPixmap pixmap = baseIcon.pixmap(32, 32);
+  if (pixmap.isNull()) {
+    m_trayIcon->setIcon(baseIcon);
+    return;
+  }
+
+  QPainter painter(&pixmap);
+  painter.setRenderHint(QPainter::Antialiasing, true);
+  painter.setPen(Qt::white);
+  painter.setBrush(online ? QColor("#4CAF50") : QColor("#f44336"));
+  painter.drawEllipse(QRect(20, 20, 10, 10));
+  painter.end();
+
+  m_trayIcon->setIcon(QIcon(pixmap));
+}
+
+void TrayIcon::updateActionStates() {
+  if (m_loginAction) {
+    m_loginAction->setEnabled(!m_online && !m_busy);
+  }
+  if (m_logoutAction) {
+    m_logoutAction->setEnabled(m_online && !m_busy);
+  }
 }
 
 void TrayIcon::onTrayActivated(QSystemTrayIcon::ActivationReason reason) {

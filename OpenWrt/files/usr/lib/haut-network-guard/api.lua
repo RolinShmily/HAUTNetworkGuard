@@ -9,7 +9,7 @@ local protocol = require("protocol")
 
 api.BASE_URL = "http://172.16.154.130"
 api.LOGIN_URL = "http://172.16.154.130:69/cgi-bin/srun_portal"
-api.USER_AGENT = "HAUTNetworkGuard/1.3.15 OpenWrt"
+api.USER_AGENT = "HAUTNetworkGuard/1.3.16 OpenWrt"
 
 local request_seq = 0
 
@@ -49,6 +49,7 @@ local function write_temp_file(path, content)
     end
     file:write(content or "")
     file:close()
+    os.execute("chmod 600 " .. shell_quote(path) .. " >/dev/null 2>&1")
     return true
 end
 
@@ -58,18 +59,24 @@ local function gen_callback()
 end
 
 local function parse_curl_output(raw)
+    local output = tostring(raw or "")
+    local exit_code = tonumber(output:match("\n__HAUT_CURL_EXIT__:(%d+)\n?$")) or 0
+    output = output:gsub("\n__HAUT_CURL_EXIT__:%d+\n?$", "")
+
     local body, http_code, time_total =
-        tostring(raw or ""):match("^(.*)\n__HAUT_CURL_META__:(%d+):([0-9%.]+)\n?$")
+        output:match("^(.*)\n__HAUT_CURL_META__:(%d+):([0-9%.]+)\n?$")
     if not body then
-        return tostring(raw or ""), {
+        return output, {
             http_code = "000",
-            duration_ms = -1
+            duration_ms = -1,
+            exit_code = exit_code
         }
     end
 
     return body, {
         http_code = http_code,
-        duration_ms = math.floor((tonumber(time_total) or 0) * 1000 + 0.5)
+        duration_ms = math.floor((tonumber(time_total) or 0) * 1000 + 0.5),
+        exit_code = exit_code
     }
 end
 
@@ -77,7 +84,8 @@ local function http_get(url, req_id, action)
     local err_file = make_temp_path("haut-network-guard-curl-get")
     local cmd = string.format(
         "curl -sS --connect-timeout 5 --max-time 8 -A %s " ..
-        "-w '\\n__HAUT_CURL_META__:%%{http_code}:%%{time_total}\\n' %s 2>%s",
+        "-w '\\n__HAUT_CURL_META__:%%{http_code}:%%{time_total}\\n' %s 2>%s; " ..
+        "printf '__HAUT_CURL_EXIT__:%%s\\n' \"$?\"",
         shell_quote(api.USER_AGENT),
         shell_quote(url),
         shell_quote(err_file)
@@ -98,12 +106,21 @@ local function http_get(url, req_id, action)
     local stderr = read_file(err_file)
     os.remove(err_file)
     if stderr ~= "" then
-        log.debug(string.format("[%s] action=%s phase=stderr preview=%s",
-            req_id, tostring(action or "get"), log.preview(stderr)))
+        local stderr_preview = log.preview(stderr)
+        if tonumber(meta.exit_code or 0) ~= 0 then
+            log.warn(string.format("[%s] action=%s phase=stderr exit=%s preview=%s",
+                req_id, tostring(action or "get"), tostring(meta.exit_code), stderr_preview))
+        else
+            log.debug(string.format("[%s] action=%s phase=stderr preview=%s",
+                req_id, tostring(action or "get"), stderr_preview))
+        end
     end
 
     log.debug(string.format("[%s] action=%s phase=response http=%s elapsed_ms=%d body=%s",
         req_id, tostring(action or "get"), meta.http_code, meta.duration_ms, log.bytes_summary(body)))
+    if tonumber(meta.exit_code or 0) ~= 0 then
+        return nil, "curl_exit_" .. tostring(meta.exit_code), meta
+    end
     return body, nil, meta
 end
 
@@ -118,7 +135,8 @@ local function http_post(url, body, req_id, action)
     local cmd = string.format(
         "curl -sS --connect-timeout 5 --max-time 10 -A %s " ..
         "-H 'Content-Type: application/x-www-form-urlencoded' " ..
-        "--data-binary @%s -w '\\n__HAUT_CURL_META__:%%{http_code}:%%{time_total}\\n' %s 2>%s",
+        "--data-binary @%s -w '\\n__HAUT_CURL_META__:%%{http_code}:%%{time_total}\\n' %s 2>%s; " ..
+        "printf '__HAUT_CURL_EXIT__:%%s\\n' \"$?\"",
         shell_quote(api.USER_AGENT),
         shell_quote(tmp_body),
         shell_quote(url),
@@ -142,12 +160,21 @@ local function http_post(url, body, req_id, action)
     os.remove(tmp_body)
     os.remove(err_file)
     if stderr ~= "" then
-        log.debug(string.format("[%s] action=%s phase=stderr preview=%s",
-            req_id, tostring(action or "post"), log.preview(stderr)))
+        local stderr_preview = log.preview(stderr)
+        if tonumber(meta.exit_code or 0) ~= 0 then
+            log.warn(string.format("[%s] action=%s phase=stderr exit=%s preview=%s",
+                req_id, tostring(action or "post"), tostring(meta.exit_code), stderr_preview))
+        else
+            log.debug(string.format("[%s] action=%s phase=stderr preview=%s",
+                req_id, tostring(action or "post"), stderr_preview))
+        end
     end
 
     log.debug(string.format("[%s] action=%s phase=response http=%s elapsed_ms=%d body=%s",
         req_id, tostring(action or "post"), meta.http_code, meta.duration_ms, log.bytes_summary(body_content)))
+    if tonumber(meta.exit_code or 0) ~= 0 then
+        return nil, "curl_exit_" .. tostring(meta.exit_code), meta
+    end
     return body_content, nil, meta
 end
 
@@ -185,11 +212,6 @@ function api.login(username, password, context)
             req_id, post_err))
         return false, "登录请求失败", "network_error"
     end
-    if response == "" then
-        log.error(string.format("[%s] action=login phase=error class=empty_response http=%s elapsed_ms=%d",
-            req_id, tostring(meta and meta.http_code or "000"), tonumber(meta and meta.duration_ms or -1)))
-        return false, "登录请求失败", "network_error"
-    end
 
     local classified = protocol.classify_login_response(response)
     log.info(string.format(
@@ -201,7 +223,7 @@ function api.login(username, password, context)
         log.preview(classified.message, 180)
     ))
 
-    if classified.ok then
+    if classified.category == "success" or classified.category == "already_online" then
         return true, classified.message, classified.category
     end
     return false, classified.message, classified.category
@@ -215,11 +237,6 @@ function api.logout()
     if post_err then
         log.error(string.format("[%s] action=logout phase=error class=network_error msg=%s",
             req_id, post_err))
-        return false, "注销请求失败"
-    end
-    if response == "" then
-        log.error(string.format("[%s] action=logout phase=error class=empty_response http=%s elapsed_ms=%d",
-            req_id, tostring(meta and meta.http_code or "000"), tonumber(meta and meta.duration_ms or -1)))
         return false, "注销请求失败"
     end
 
@@ -248,10 +265,10 @@ function api.get_user_info(source)
     )
 
     local response, get_err, meta = http_get(url, req_id, "status")
-    if get_err or not response or response == "" then
-        log.debug(string.format("[%s] action=status phase=response class=offline source=%s http=%s elapsed_ms=%d",
-            req_id, source, tostring(meta and meta.http_code or "000"), tonumber(meta and meta.duration_ms or -1)))
-        return nil
+    if get_err then
+        log.warn(string.format("[%s] action=status phase=error class=network_error source=%s msg=%s",
+            req_id, source, tostring(get_err)))
+        return nil, tostring(get_err)
     end
 
     local parsed, format = protocol.parse_status_response(response)
@@ -264,19 +281,19 @@ function api.get_user_info(source)
         log.info(string.format("[%s] action=status phase=response class=online_%s source=%s http=%s elapsed_ms=%d",
             req_id, tostring(format), source, tostring(meta and meta.http_code or "000"),
             tonumber(meta and meta.duration_ms or -1)))
-        return parsed
+        return parsed, "online_" .. tostring(format)
     end
 
     if format == "offline" then
         log.debug(string.format("[%s] action=status phase=response class=offline source=%s http=%s elapsed_ms=%d",
             req_id, source, tostring(meta and meta.http_code or "000"), tonumber(meta and meta.duration_ms or -1)))
-        return nil
+        return nil, "offline"
     end
 
     log.warn(string.format("[%s] action=status phase=response class=%s source=%s http=%s elapsed_ms=%d preview=%s",
         req_id, tostring(format), source, tostring(meta and meta.http_code or "000"),
         tonumber(meta and meta.duration_ms or -1), log.preview(response, 180)))
-    return nil
+    return nil, tostring(format)
 end
 
 function api.test_connection()

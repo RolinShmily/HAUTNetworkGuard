@@ -20,9 +20,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showFirstRunSettings() {
-        settingsWindow = SettingsWindowController()
+        settingsWindow = SettingsWindowController(isInitialSetup: true)
         settingsWindow?.onSave = { [weak self] in
             self?.startApp()
+        }
+        settingsWindow?.onCloseWithoutSave = {
+            Logger.warn("首次配置在保存前被关闭，应用将退出")
+            NSApp.terminate(nil)
         }
         settingsWindow?.showWindow(nil)
         settingsWindow?.window?.makeKeyAndOrderFront(nil)

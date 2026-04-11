@@ -19,6 +19,19 @@ local function strip_wrapping_quotes(value)
     return value, false
 end
 
+local function is_valid_ipv4(value)
+    local a, b, c, d = tostring(value or ""):match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+    if not a then return false end
+
+    local parts = { tonumber(a), tonumber(b), tonumber(c), tonumber(d) }
+    for _, part in ipairs(parts) do
+        if not part or part < 0 or part > 255 then
+            return false
+        end
+    end
+    return true
+end
+
 function protocol.sanitize_uci_value(raw)
     local original = tostring(raw or "")
     local sanitized = original:gsub("^\239\187\191", "")
@@ -121,7 +134,11 @@ function protocol.parse_status_response(response)
 
     local csv_username, csv_seconds, csv_ip, csv_bytes =
         body:match("^([^,]+),([^,]+),([^,]+),([^,]+)")
-    if csv_username and csv_ip then
+    if csv_username and csv_ip
+        and tonumber(csv_seconds) ~= nil
+        and tonumber(csv_bytes) ~= nil
+        and csv_username ~= ""
+        and is_valid_ipv4(csv_ip) then
         return {
             username = csv_username,
             ip = csv_ip,

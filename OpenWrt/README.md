@@ -31,7 +31,7 @@ opkg install lua curl
 固定版本安装（推荐生产环境）：
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.15/OpenWrt/install-online.sh | sh -s -- v1.3.15
+wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.16/OpenWrt/install-online.sh | sh -s -- v1.3.16
 ```
 
 安装最新 main（适合测试）：
@@ -49,7 +49,7 @@ curl -sSL https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/main
 升级到固定版本：
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.15/OpenWrt/upgrade-online.sh | sh -s -- v1.3.15
+wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.16/OpenWrt/upgrade-online.sh | sh -s -- v1.3.16
 ```
 
 ## 手动安装
@@ -113,6 +113,9 @@ logread | grep haut-network-guard
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/main/OpenWrt/uninstall-online.sh | sh
+
+# 如需连配置一起删除：
+wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/main/OpenWrt/uninstall-online.sh | sh -s -- --purge-config
 ```
 
 或手动卸载：
@@ -120,6 +123,9 @@ wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/main
 ```bash
 chmod +x uninstall.sh
 ./uninstall.sh
+
+# 如需连配置一起删除：
+./uninstall.sh --purge-config
 ```
 
 ## 文件结构

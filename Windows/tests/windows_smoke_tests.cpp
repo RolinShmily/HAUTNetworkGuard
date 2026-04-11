@@ -53,6 +53,12 @@ int main(int argc, char *argv[]) {
   expect(csvResult.online, "CSV 状态解析应判定为在线");
   expect(csvResult.format == "csv", "CSV 状态解析格式不匹配");
 
+  const StatusParseResult invalidCsvResult =
+      ProtocolUtils::parseStatusResponse("oops,NaN,not-an-ip,garbage");
+  expect(!invalidCsvResult.online, "异常 CSV 响应不应判定为在线");
+  expect(invalidCsvResult.format == "unparsed",
+         "异常 CSV 响应应标记为 unparsed");
+
   QSettings settings("HAUTNetworkGuard", "HAUTNetworkGuard");
   settings.clear();
   settings.sync();

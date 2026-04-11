@@ -6,7 +6,7 @@ class AppConfig {
 
     // 应用信息
     static let appName = "HAUT Network Guard"
-    static let version = "1.3.15"
+    static let version = "1.3.16"
     static let author = "YellowPeach"
     static let website = "https://github.com/yellowpeachxgp/HAUTNetworkGuard"
     static let qqGroup = "789860526"
@@ -37,7 +37,7 @@ class AppConfig {
     /// 用户名
     var username: String {
         get { UserDefaults.standard.string(forKey: usernameKey) ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: usernameKey) }
+        set { UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: usernameKey) }
     }
 
     /// 密码
@@ -81,7 +81,7 @@ class AppConfig {
 
     /// 保存配置
     func save(username: String, password: String, autoSave: Bool, checkInterval: Int = 30, autoLogin: Bool = true) {
-        self.username = username
+        self.username = username.trimmingCharacters(in: .whitespacesAndNewlines)
         self.autoSave = autoSave
         self.checkInterval = checkInterval
         self.autoLogin = autoLogin
@@ -95,7 +95,7 @@ class AppConfig {
         }
 
         Logger.info(
-            "配置已保存 (账号: \(Logger.maskUsername(username)), remember_password: \(autoSave), auto_login: \(autoLogin), interval: \(checkInterval)s)"
+            "配置已保存 (账号: \(Logger.maskUsername(self.username)), remember_password: \(autoSave), auto_login: \(autoLogin), interval: \(self.checkInterval)s)"
         )
     }
 

@@ -86,7 +86,7 @@ void Api::login(const QString &username, const QString &password) {
   request.setHeader(QNetworkRequest::ContentTypeHeader,
                     "application/x-www-form-urlencoded");
   request.setHeader(QNetworkRequest::UserAgentHeader,
-                    "HAUTNetworkGuard/1.3.15 Qt");
+                    "HAUTNetworkGuard/1.3.16 Qt");
   request.setTransferTimeout(10000);
 
   QNetworkReply *reply = m_networkManager->post(request, body.toUtf8());
@@ -110,7 +110,7 @@ void Api::logout() {
   request.setHeader(QNetworkRequest::ContentTypeHeader,
                     "application/x-www-form-urlencoded");
   request.setHeader(QNetworkRequest::UserAgentHeader,
-                    "HAUTNetworkGuard/1.3.15 Qt");
+                    "HAUTNetworkGuard/1.3.16 Qt");
   request.setTransferTimeout(10000);
 
   QNetworkReply *reply = m_networkManager->post(request, body.toUtf8());
@@ -138,7 +138,7 @@ void Api::checkStatus() {
 
   QNetworkRequest request(url);
   request.setHeader(QNetworkRequest::UserAgentHeader,
-                    "HAUTNetworkGuard/1.3.15 Qt");
+                    "HAUTNetworkGuard/1.3.16 Qt");
   request.setTransferTimeout(5000);
 
   QNetworkReply *reply = m_networkManager->get(request);
@@ -187,7 +187,7 @@ void Api::onLoginReplyFinished() {
 
   // 检查登录结果 (与 Rust 版本一致)
   if (classification == "success" || classification == "already_online") {
-    emit loginSuccess("登录成功");
+    emit loginSuccess(classification == "already_online" ? "已在线" : "登录成功");
   } else {
     QString error = "登录失败";
     if (!errCode.isEmpty()) {
@@ -235,7 +235,7 @@ void Api::onLogoutReplyFinished() {
                     .arg(ProtocolUtils::responsePreview(response)));
 
   if (classification == "logout_ok" || classification == "not_online") {
-    emit logoutSuccess();
+    emit logoutSuccess(classification);
   } else {
     emit logoutFailed("注销失败");
   }
@@ -260,7 +260,7 @@ void Api::onStatusReplyFinished() {
                      .arg(action)
                      .arg(elapsedMs)
                      .arg(reply->errorString()));
-    emit statusChecked(false, "", 0, 0);
+    emit statusChecked(false, "network_error", "", 0, 0);
     return;
   }
 
@@ -287,7 +287,8 @@ void Api::onStatusReplyFinished() {
                      .arg(action)
                      .arg(parsed.format)
                      .arg(elapsedMs));
-    emit statusChecked(true, parsed.ip, parsed.bytes, parsed.seconds);
+    emit statusChecked(true, QString("online_%1").arg(parsed.format),
+                       parsed.ip, parsed.bytes, parsed.seconds);
     return;
   }
 
@@ -297,7 +298,7 @@ void Api::onStatusReplyFinished() {
                       .arg(requestId)
                       .arg(action)
                       .arg(elapsedMs));
-    emit statusChecked(false, "", 0, 0);
+    emit statusChecked(false, "offline", "", 0, 0);
     return;
   }
 
@@ -307,5 +308,5 @@ void Api::onStatusReplyFinished() {
                    .arg(action)
                    .arg(parsed.format)
                    .arg(elapsedMs));
-  emit statusChecked(false, "", 0, 0);
+  emit statusChecked(false, parsed.format, "", 0, 0);
 }

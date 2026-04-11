@@ -114,8 +114,10 @@ class SrunAPI {
                         usedBytes: parsed.usedBytes,
                         usedSeconds: parsed.usedSeconds
                     )
-                } else {
+                } else if parsed.format == "offline" {
                     status = .offline
+                } else {
+                    status = .error("状态解析失败(\(parsed.format))")
                 }
                 let classification = parsed.online ? "online_\(parsed.format)" : parsed.format
                 Logger.info("[\(requestID)] action=status phase=response class=\(classification) elapsed_ms=\(durationMs)")
@@ -197,8 +199,11 @@ class SrunAPI {
 
     private func mapLoginResult(action: String, classified: SrunLoginClassification) -> LoginResult {
         if action == "logout" {
-            if classified.category == "logout_ok" || classified.category == "not_online" {
+            if classified.category == "logout_ok" {
                 return .success
+            }
+            if classified.category == "not_online" {
+                return .alreadyOnline
             }
             return .failed(classified.message)
         }

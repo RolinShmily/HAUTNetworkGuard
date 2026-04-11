@@ -31,6 +31,7 @@ class UpdateChecker {
 
     private let session: URLSession
     private var checkTimer: Timer?
+    private var currentTask: URLSessionDataTask?
 
     // 后台自动检测回调（只在有更新时触发）
     var onUpdateAvailable: ((ReleaseInfo) -> Void)?
@@ -46,6 +47,8 @@ class UpdateChecker {
 
     /// 启动定期检测
     func startPeriodicCheck() {
+        checkTimer?.invalidate()
+
         // 立即检测一次（如果距离上次检测超过1天）
         if shouldCheckNow() {
             checkForUpdate(isManual: false)
@@ -77,6 +80,11 @@ class UpdateChecker {
     ///   - isManual: 是否为手动检测（手动检测会触发 onCheckComplete 回调）
     ///   - force: 是否强制检测（忽略跳过的版本）
     func checkForUpdate(isManual: Bool = true, force: Bool = false) {
+        if currentTask != nil {
+            Logger.info("已有更新检测进行中，跳过重复请求")
+            return
+        }
+
         guard let url = URL(string: releaseAPIURL) else {
             if isManual {
                 DispatchQueue.main.async {
@@ -94,12 +102,30 @@ class UpdateChecker {
 
         let task = session.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
+            defer { self.currentTask = nil }
 
             if let error = error {
                 Logger.warn("检测更新失败: \(error.localizedDescription)")
                 if isManual {
                     DispatchQueue.main.async {
                         self.onCheckComplete?(.error("网络请求失败: \(error.localizedDescription)"))
+                    }
+                }
+                return
+            }
+
+            if let httpResponse = response as? HTTPURLResponse,
+               !(200...299).contains(httpResponse.statusCode) {
+                let message: String
+                if httpResponse.statusCode == 403 {
+                    message = "GitHub API 请求被拒绝，可能触发了频率限制"
+                } else {
+                    message = "GitHub API 返回异常状态码: \(httpResponse.statusCode)"
+                }
+                Logger.warn("检测更新失败: \(message)")
+                if isManual {
+                    DispatchQueue.main.async {
+                        self.onCheckComplete?(.error(message))
                     }
                 }
                 return
@@ -117,6 +143,7 @@ class UpdateChecker {
 
             self.parseReleaseResponse(data, isManual: isManual, force: force)
         }
+        currentTask = task
         task.resume()
     }
 
@@ -229,5 +256,6 @@ class UpdateChecker {
     /// 清除跳过的版本
     func clearSkippedVersion() {
         UserDefaults.standard.removeObject(forKey: skippedVersionKey)
+        Logger.info("已清除跳过的版本记录")
     }
 }

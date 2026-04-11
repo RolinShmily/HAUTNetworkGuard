@@ -99,14 +99,18 @@ enum SrunProtocol {
         }
 
         let parts = trimmed.components(separatedBy: ",")
-        if parts.count >= 4 {
+        if parts.count >= 4,
+           !parts[0].isEmpty,
+           let usedSeconds = Int64(parts[1]),
+           isValidIPv4(parts[2]),
+           let usedBytes = Int64(parts[3]) {
             return SrunParsedStatus(
                 online: true,
                 format: "csv",
                 username: parts[0],
                 ip: parts[2],
-                usedBytes: Int64(parts[3]) ?? 0,
-                usedSeconds: Int64(parts[1]) ?? 0
+                usedBytes: usedBytes,
+                usedSeconds: usedSeconds
             )
         }
 
@@ -147,5 +151,16 @@ enum SrunProtocol {
             return Int64(stringValue) ?? 0
         }
         return 0
+    }
+
+    private static func isValidIPv4(_ value: String) -> Bool {
+        let parts = value.split(separator: ".")
+        guard parts.count == 4 else { return false }
+        return parts.allSatisfy { part in
+            guard let octet = Int(part), octet >= 0, octet <= 255 else {
+                return false
+            }
+            return true
+        }
     }
 }

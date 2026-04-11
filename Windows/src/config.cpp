@@ -123,8 +123,21 @@ void Config::updateAutoLaunch(bool enable) {
   Logger::debug(QString("更新开机自启配置: enable=%1, command=%2")
                     .arg(Logger::boolText(enable))
                     .arg(command));
-  updateAutoLaunchRegistry(enable, command);
-  updateAutoLaunchStartupScript(enable, command);
+  if (!enable) {
+    updateAutoLaunchRegistry(false, command);
+    updateAutoLaunchStartupScript(false, command);
+    return;
+  }
+
+  updateAutoLaunchRegistry(true, command);
+  if (isRegistryCommandExpected(command)) {
+    Logger::info("开机自启主链路已更新为注册表 Run，清理 Startup 脚本兜底");
+    updateAutoLaunchStartupScript(false, command);
+    return;
+  }
+
+  Logger::warn("注册表自启写入未生效，启用 Startup 脚本兜底");
+  updateAutoLaunchStartupScript(true, command);
 }
 
 void Config::updateAutoLaunchRegistry(bool enable, const QString &command) {
@@ -253,11 +266,21 @@ void Config::verifyAndRepairAutoLaunch() {
           .arg(scriptPath.isEmpty() ? "<unknown>" : scriptPath));
 
   if (registryOk && startupOk) {
+    Logger::warn("检测到重复的开机自启链路，保留注册表 Run 并移除 Startup 脚本");
+    updateAutoLaunchStartupScript(false, command);
     return;
   }
 
-  Logger::warn(QString("检测到开机自启配置缺失或不一致，执行修复 "
-                       "(registry=%1, startup=%2)")
+  if (registryOk) {
+    return;
+  }
+
+  if (startupOk) {
+    Logger::info("检测到 Startup 脚本兜底链路有效，暂不重复注册注册表项");
+    return;
+  }
+
+  Logger::warn(QString("检测到开机自启链路缺失，执行修复 (registry=%1, startup=%2)")
                    .arg(Logger::boolText(registryOk))
                    .arg(Logger::boolText(startupOk)));
   updateAutoLaunch(true);

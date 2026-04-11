@@ -30,9 +30,10 @@ private slots:
 
   void onLoginSuccess(const QString &message);
   void onLoginFailed(const QString &error);
-  void onLogoutSuccess();
+  void onLogoutSuccess(const QString &resultClass);
   void onLogoutFailed(const QString &error);
-  void onStatusChecked(bool online, const QString &ip, qint64 bytesUsed,
+  void onStatusChecked(bool online, const QString &resultClass,
+                       const QString &ip, qint64 bytesUsed,
                        qint64 secondsOnline);
 
   void checkNetworkStatus();
@@ -46,6 +47,7 @@ private:
   void saveSettings();
   void syncCredentialsToConfig();
   void triggerAutoLoginIfPossible(const QString &reason);
+  void refreshActionState();
   void updateStatusDisplay(bool online, const QString &ip = "",
                            qint64 bytes = 0, qint64 seconds = 0);
   QString formatBytes(qint64 bytes);
@@ -75,7 +77,9 @@ private:
   bool m_isOnline = false;
   bool m_startupLoginAttempted = false;
   bool m_isLoggingIn = false;
+  bool m_isLoggingOut = false;
   bool m_isManualLogin = false;
+  bool m_manualOfflineHold = false;
   qint64 m_lastAutoLoginAttemptMs = 0;
   int m_autoLoginRetryIntervalMs = 60000; // 最短 60 秒重试一次
 };

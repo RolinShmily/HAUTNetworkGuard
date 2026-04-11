@@ -71,6 +71,10 @@ assert_equal(parsed2.ip, "10.10.0.8", "parse_status_response.csv.ip")
 assert_equal(parsed2.bytes, 12345678, "parse_status_response.csv.bytes")
 assert_equal(parsed2.seconds, 321, "parse_status_response.csv.seconds")
 
+local parsed_invalid, format_invalid = protocol.parse_status_response("oops,NaN,not-an-ip,garbage")
+assert_equal(parsed_invalid, nil, "parse_status_response.invalid_csv.value")
+assert_equal(format_invalid, "unparsed", "parse_status_response.invalid_csv.format")
+
 local parsed3, format3 = protocol.parse_status_response("not_online")
 assert_equal(parsed3, nil, "parse_status_response.offline.value")
 assert_equal(format3, "offline", "parse_status_response.offline.format")

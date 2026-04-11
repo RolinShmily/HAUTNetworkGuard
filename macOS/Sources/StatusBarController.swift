@@ -7,13 +7,17 @@ class StatusBarController: NSObject {
     private var menu: NSMenu!
     private var statusMenuItem: NSMenuItem!
     private var detailMenuItem: NSMenuItem!
+    private var loginMenuItem: NSMenuItem!
+    private var logoutMenuItem: NSMenuItem!
 
     private let api = SrunAPI()
     private var checkTimer: Timer?
     private var currentStatus: NetworkStatus = .checking
     private var checkInterval: TimeInterval { TimeInterval(AppConfig.shared.checkInterval) }
     private var isLoggingIn = false
+    private var isCheckingStatus = false
     private var startupAutoLoginEvaluated = false
+    private var manualOfflineHold = false
     private var lastAutoLoginAttemptAt: Date?
     private let autoLoginRetryInterval: TimeInterval = 30
 
@@ -26,6 +30,7 @@ class StatusBarController: NSObject {
     private var updateWindowController: UpdateWindowController?
     // 需要持有设置窗口控制器，否则会被提前释放导致控件动作失效
     private var settingsWindowController: SettingsWindowController?
+    private var aboutWindowController: AboutWindowController?
 
     override init() {
         super.init()
@@ -93,22 +98,22 @@ extension StatusBarController {
         menu.addItem(NSMenuItem.separator())
 
         // 立即登录
-        let loginItem = NSMenuItem(
+        loginMenuItem = NSMenuItem(
             title: "立即登录",
             action: #selector(loginAction),
             keyEquivalent: "l"
         )
-        loginItem.target = self
-        menu.addItem(loginItem)
+        loginMenuItem.target = self
+        menu.addItem(loginMenuItem)
 
         // 注销登录
-        let logoutItem = NSMenuItem(
+        logoutMenuItem = NSMenuItem(
             title: "注销登录",
             action: #selector(logoutAction),
             keyEquivalent: "o"
         )
-        logoutItem.target = self
-        menu.addItem(logoutItem)
+        logoutMenuItem.target = self
+        menu.addItem(logoutMenuItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -179,9 +184,16 @@ extension StatusBarController {
     }
 
     private func checkStatus(reason: String) {
+        guard !isCheckingStatus else {
+            Logger.debug("跳过状态检测 [\(reason)]：已有状态请求进行中")
+            return
+        }
+
+        isCheckingStatus = true
         Logger.debug("触发一次网络状态检测 [\(reason)]")
         api.checkStatus { [weak self] status in
             DispatchQueue.main.async {
+                self?.isCheckingStatus = false
                 self?.handleStatusChange(status, reason: reason)
             }
         }
@@ -256,11 +268,18 @@ extension StatusBarController {
         )
         statusMenuItem.title = statusText
         detailMenuItem.title = currentStatus.description
+        loginMenuItem.isEnabled = !currentStatus.isOnline && !isLoggingIn
+        logoutMenuItem.isEnabled = currentStatus.isOnline && !isLoggingIn
     }
 
     private func triggerAutoLoginIfNeeded(trigger: String) {
         guard !isLoggingIn else {
             Logger.debug("跳过自动登录 [\(trigger)]：已有登录请求进行中")
+            return
+        }
+
+        guard !manualOfflineHold else {
+            Logger.info("跳过自动登录 [\(trigger)]：用户手动注销后保持离线")
             return
         }
 
@@ -284,21 +303,25 @@ extension StatusBarController {
 
     private func performAutoLogin(trigger: String) {
         isLoggingIn = true
+        updateUI()
         Logger.info("执行自动登录流程 [\(trigger)] (account: \(Logger.maskUsername(AppConfig.shared.username)))")
         api.login { [weak self] result in
             DispatchQueue.main.async {
                 self?.isLoggingIn = false
                 switch result {
                 case .success:
+                    self?.manualOfflineHold = false
                     Logger.info("自动登录成功 [\(trigger)]")
                     self?.sendNotification(title: "登录成功", body: "已自动重新连接校园网")
                     self?.checkStatus(reason: "post_auto_login_success")
                 case .alreadyOnline:
+                    self?.manualOfflineHold = false
                     Logger.info("自动登录返回 already_online [\(trigger)]")
                     self?.checkStatus(reason: "post_auto_login_already_online")
                 case .failed(let msg):
                     Logger.warn("自动登录失败 [\(trigger)]: \(msg)")
                     self?.sendNotification(title: "登录失败", body: msg)
+                    self?.updateUI()
                 }
             }
         }
@@ -314,33 +337,54 @@ extension StatusBarController {
         }
 
         isLoggingIn = true
+        manualOfflineHold = false
+        updateUI()
         Logger.info("手动登录")
         api.login { [weak self] result in
             DispatchQueue.main.async {
                 self?.isLoggingIn = false
                 switch result {
                 case .success:
+                    self?.manualOfflineHold = false
                     self?.sendNotification(title: "登录成功", body: "已连接校园网")
                 case .alreadyOnline:
+                    self?.manualOfflineHold = false
                     self?.sendNotification(title: "提示", body: "已经在线")
                 case .failed(let msg):
                     self?.sendNotification(title: "登录失败", body: msg)
                 }
+                self?.updateUI()
                 self?.checkStatus(reason: "manual_login")
             }
         }
     }
 
     @objc private func logoutAction() {
+        guard !isLoggingIn else {
+            Logger.debug("忽略手动注销：已有登录请求进行中")
+            return
+        }
+
+        manualOfflineHold = true
+        isLoggingIn = true
+        updateUI()
         Logger.info("手动注销")
         api.logout { [weak self] result in
             DispatchQueue.main.async {
+                self?.isLoggingIn = false
                 switch result {
                 case .success:
+                    self?.currentStatus = .offline
+                    self?.updateUI()
                     self?.sendNotification(title: "注销成功", body: "已断开校园网")
-                case .alreadyOnline, .failed:
-                    self?.sendNotification(title: "注销失败", body: "请稍后重试")
+                case .alreadyOnline:
+                    self?.manualOfflineHold = false
+                    self?.sendNotification(title: "提示", body: "当前未在线")
+                case .failed(let msg):
+                    self?.manualOfflineHold = false
+                    self?.sendNotification(title: "注销失败", body: msg)
                 }
+                self?.updateUI()
                 self?.checkStatus(reason: "manual_logout")
             }
         }
@@ -365,9 +409,9 @@ extension StatusBarController {
 
     @objc private func aboutAction() {
         Logger.debug("打开关于窗口")
-        let controller = AboutWindowController()
-        controller.showWindow(nil)
-        controller.window?.makeKeyAndOrderFront(nil)
+        aboutWindowController = AboutWindowController()
+        aboutWindowController?.showWindow(nil)
+        aboutWindowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 

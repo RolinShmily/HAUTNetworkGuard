@@ -2,7 +2,7 @@
 # HAUT Network Guard - OpenWrt 一键安装脚本
 # 用法:
 #   最新 main: wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/main/OpenWrt/install-online.sh | sh
-#   固定版本:   wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.15/OpenWrt/install-online.sh | sh -s -- v1.3.15
+#   固定版本:   wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.16/OpenWrt/install-online.sh | sh -s -- v1.3.16
 
 set -e
 
@@ -53,19 +53,23 @@ download_file "$REPO_URL/files/usr/lib/haut-network-guard/main.lua" "$INSTALL_DI
 
 echo "[4/5] 下载配置文件..."
 download_file "$REPO_URL/files/etc/init.d/haut-network-guard" "/etc/init.d/haut-network-guard"
-download_file "$REPO_URL/files/etc/config/haut-network-guard" "/etc/config/haut-network-guard"
+if [ -f /etc/config/haut-network-guard ]; then
+    echo "      检测到现有配置，保留 /etc/config/haut-network-guard"
+else
+    download_file "$REPO_URL/files/etc/config/haut-network-guard" "/etc/config/haut-network-guard"
+fi
 
 # 设置权限
 echo "[5/5] 设置权限..."
 chmod +x /etc/init.d/haut-network-guard
-chmod 600 /etc/config/haut-network-guard
+[ -f /etc/config/haut-network-guard ] && chmod 600 /etc/config/haut-network-guard
 
 # 启用服务
 /etc/init.d/haut-network-guard enable >/dev/null 2>&1
 
 echo ""
 echo "=========================================="
-echo "  安装完成! (v1.3.15)"
+echo "  安装完成! (v1.3.16)"
 echo "=========================================="
 echo ""
 echo "下一步 - 配置账号:"
