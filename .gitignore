@@ -6,10 +6,13 @@
 # AI 文档 (本地参考用)
 AIREADME.md
 */AIREADME.md
+!Windows/AIREADME.md
+!macOS/AIREADME.md
 
 # macOS build
 macOS/build/
 macOS/*.dmg
+macOS/tests/build/
 
 # Windows build
 Windows/build/
@@ -27,3 +30,4 @@ Windows/target/
 
 # Rust build artifacts
 Windows-Rust-Deprecated/target/
+Windows-Rust-Deprecated/*.exe

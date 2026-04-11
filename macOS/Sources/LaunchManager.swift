@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// 开机自启动管理器
 class LaunchManager {
@@ -19,7 +20,11 @@ class LaunchManager {
     }
 
     private var executablePath: String {
-        "/Applications/HAUTNetworkGuard.app/Contents/MacOS/HAUTNetworkGuard"
+        Bundle.main.executablePath ?? "/Applications/HAUTNetworkGuard.app/Contents/MacOS/HAUTNetworkGuard"
+    }
+
+    private var launchctlDomain: String {
+        "gui/\(getuid())"
     }
 
     private var stdoutPath: String {
@@ -48,7 +53,8 @@ class LaunchManager {
             do {
                 try FileManager.default.createDirectory(
                     atPath: launchAgentsPath,
-                    withIntermediateDirectories: true
+                    withIntermediateDirectories: true,
+                    attributes: nil
                 )
             } catch {
                 Logger.log("创建 LaunchAgents 目录失败: \(error)")
@@ -64,7 +70,8 @@ class LaunchManager {
             do {
                 try FileManager.default.createDirectory(
                     atPath: logDirectory,
-                    withIntermediateDirectories: true
+                    withIntermediateDirectories: true,
+                    attributes: nil
                 )
             } catch {
                 Logger.warn("创建 LaunchAgent 日志目录失败: \(error)")
@@ -95,8 +102,10 @@ class LaunchManager {
         do {
             try data.write(to: URL(fileURLWithPath: plistPath), options: .atomic)
             Logger.log("开机自启动 plist 已写入: \(plistPath)")
+            _ = runLaunchctl(arguments: ["bootout", launchctlDomain, plistPath], tolerateFailure: true)
             _ = runLaunchctl(arguments: ["unload", plistPath], tolerateFailure: true)
-            if runLaunchctl(arguments: ["load", plistPath], tolerateFailure: false) {
+            if runLaunchctl(arguments: ["bootstrap", launchctlDomain, plistPath], tolerateFailure: true)
+                || runLaunchctl(arguments: ["load", plistPath], tolerateFailure: false) {
                 Logger.log("开机自启动已启用并加载")
                 return true
             }
@@ -116,6 +125,7 @@ class LaunchManager {
         }
 
         do {
+            _ = runLaunchctl(arguments: ["bootout", launchctlDomain, plistPath], tolerateFailure: true)
             _ = runLaunchctl(arguments: ["unload", plistPath], tolerateFailure: true)
             try FileManager.default.removeItem(atPath: plistPath)
             Logger.log("开机自启动已禁用")

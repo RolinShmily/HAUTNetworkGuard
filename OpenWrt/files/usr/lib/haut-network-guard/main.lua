@@ -2,58 +2,13 @@
 -- HAUT Network Guard - OpenWrt 版本
 -- 主程序入口
 
-local VERSION = "1.3.14"
+local VERSION = "1.3.15"
 
 package.path = package.path .. ";/usr/lib/haut-network-guard/?.lua"
 
 local api = require("api")
 local log = require("log")
-
-local function trim_value(value)
-    if not value then return "" end
-    return tostring(value):gsub("^%s+", ""):gsub("%s+$", "")
-end
-
-local function strip_wrapping_quotes(value)
-    if #value >= 2 then
-        local first = value:sub(1, 1)
-        local last = value:sub(-1, -1)
-        if (first == "\"" and last == "\"") or (first == "'" and last == "'") then
-            return value:sub(2, -2), true
-        end
-    end
-    return value, false
-end
-
-local function sanitize_uci_value(raw)
-    local original = tostring(raw or "")
-    local sanitized = original:gsub("^\239\187\191", "")
-
-    local had_cr = sanitized:find("\r", 1, true) ~= nil
-    sanitized = sanitized:gsub("\r", "")
-
-    local had_control = sanitized:find("[%z\1-\8\11\12\14-\31\127]") ~= nil
-    sanitized = sanitized:gsub("[%z\1-\8\11\12\14-\31\127]", "")
-
-    local before_trim = sanitized
-    sanitized = trim_value(sanitized)
-    local trimmed = before_trim ~= sanitized
-
-    local unquoted = false
-    sanitized, unquoted = strip_wrapping_quotes(sanitized)
-    if unquoted then
-        sanitized = trim_value(sanitized)
-    end
-
-    return sanitized, {
-        raw_len = #original,
-        clean_len = #sanitized,
-        had_cr = had_cr,
-        had_control = had_control,
-        trimmed = trimmed,
-        unquoted = unquoted
-    }
-end
+local protocol = require("protocol")
 
 local function read_uci_value(key)
     local handle = io.popen("uci -q get " .. key .. " 2>/dev/null")
@@ -77,14 +32,14 @@ local function read_config()
     local diagnostics = {}
 
     config.username, diagnostics.username =
-        sanitize_uci_value(read_uci_value("haut-network-guard.main.username"))
+        protocol.sanitize_uci_value(read_uci_value("haut-network-guard.main.username"))
     config.password, diagnostics.password =
-        sanitize_uci_value(read_uci_value("haut-network-guard.main.password"))
+        protocol.sanitize_uci_value(read_uci_value("haut-network-guard.main.password"))
     config.log_level, diagnostics.log_level =
-        sanitize_uci_value(read_uci_value("haut-network-guard.main.log_level"))
+        protocol.sanitize_uci_value(read_uci_value("haut-network-guard.main.log_level"))
 
     local enabled_value, enabled_diag =
-        sanitize_uci_value(read_uci_value("haut-network-guard.main.enabled"))
+        protocol.sanitize_uci_value(read_uci_value("haut-network-guard.main.enabled"))
     diagnostics.enabled = enabled_diag
     if enabled_value ~= "" then
         local normalized = enabled_value:lower()
@@ -92,7 +47,7 @@ local function read_config()
     end
 
     local interval_value, interval_diag =
-        sanitize_uci_value(read_uci_value("haut-network-guard.main.interval"))
+        protocol.sanitize_uci_value(read_uci_value("haut-network-guard.main.interval"))
     diagnostics.interval = interval_diag
     if interval_value ~= "" then
         config.interval = tonumber(interval_value) or 30
@@ -109,8 +64,7 @@ local function read_config()
 end
 
 local function has_suspicious_changes(diag)
-    if not diag then return false end
-    return diag.had_cr or diag.had_control or diag.trimmed or diag.unquoted
+    return protocol.has_suspicious_changes(diag)
 end
 
 local function config_signature(config)

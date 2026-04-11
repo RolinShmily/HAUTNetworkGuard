@@ -28,6 +28,14 @@ opkg install lua curl
 
 在路由器终端执行：
 
+固定版本安装（推荐生产环境）：
+
+```bash
+wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.15/OpenWrt/install-online.sh | sh -s -- v1.3.15
+```
+
+安装最新 main（适合测试）：
+
 ```bash
 wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/main/OpenWrt/install-online.sh | sh
 ```
@@ -36,6 +44,12 @@ wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/main
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/main/OpenWrt/install-online.sh | sh
+```
+
+升级到固定版本：
+
+```bash
+wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.15/OpenWrt/upgrade-online.sh | sh -s -- v1.3.15
 ```
 
 ## 手动安装
@@ -57,6 +71,9 @@ uci set haut-network-guard.main.password='你的密码'
 
 # 设置检测间隔 (秒，默认30)
 uci set haut-network-guard.main.interval='30'
+
+# 可选: 设置日志级别 (debug/info/warn/error)
+uci set haut-network-guard.main.log_level='info'
 
 # 保存配置
 uci commit haut-network-guard
@@ -111,6 +128,8 @@ chmod +x uninstall.sh
 /usr/lib/haut-network-guard/
 ├── main.lua      # 主程序
 ├── api.lua       # API 模块
+├── log.lua       # 日志与脱敏
+├── protocol.lua  # 配置清洗/响应分类纯逻辑
 └── crypto.lua    # 加密模块
 
 /etc/init.d/haut-network-guard    # 服务脚本
@@ -124,3 +143,17 @@ chmod +x uninstall.sh
 - 密码 XOR + 位分割编码
 - `POST /cgi-bin/srun_portal` 提交登录请求
 - `GET /cgi-bin/rad_user_info` 检查在线状态
+
+日志与协议规范参考：
+
+- [`../docs/LOGGING_CONTRACT.md`](../docs/LOGGING_CONTRACT.md)
+- [`../docs/SRUN3K_PROTOCOL_SPEC.md`](../docs/SRUN3K_PROTOCOL_SPEC.md)
+
+## 调试建议
+
+- 查看日志:
+  - `logread | grep haut-network-guard`
+- 临时提高日志级别:
+  - `uci set haut-network-guard.main.log_level='debug'`
+  - `uci commit haut-network-guard`
+  - `/etc/init.d/haut-network-guard restart`

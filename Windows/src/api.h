@@ -40,8 +40,6 @@ private:
   quint64 trackReply(QNetworkReply *reply, const QString &action);
   void finishTrackedReply(QNetworkReply *reply, quint64 *requestId,
                           QString *action, qint64 *elapsedMs);
-  static QString responsePreview(const QString &response, int maxLen = 160);
-  static QString extractErrorCode(const QString &response);
 
   QNetworkAccessManager *m_networkManager;
   QHash<QNetworkReply *, quint64> m_requestIds;

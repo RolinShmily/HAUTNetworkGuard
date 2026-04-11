@@ -37,8 +37,10 @@ swiftc \
     -framework Cocoa \
     -framework UserNotifications \
     -framework Network \
+    "$SOURCES_DIR/Logger.swift" \
     "$SOURCES_DIR/Config.swift" \
     "$SOURCES_DIR/Encryption.swift" \
+    "$SOURCES_DIR/SrunProtocol.swift" \
     "$SOURCES_DIR/DirectHTTPClient.swift" \
     "$SOURCES_DIR/SrunAPI.swift" \
     "$SOURCES_DIR/UpdateChecker.swift" \

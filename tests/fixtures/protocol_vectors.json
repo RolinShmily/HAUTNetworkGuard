@@ -1,0 +1,118 @@
+{
+  "username_vectors": [
+    {
+      "input": "231040600203",
+      "expected": "{SRUN3}\r\n675484:44647"
+    },
+    {
+      "input": "test01",
+      "expected": "{SRUN3}\r\nxiwx45"
+    },
+    {
+      "input": "9",
+      "expected": "{SRUN3}\r\n="
+    }
+  ],
+  "password_vectors": [
+    {
+      "input": "password123",
+      "expected": "6gh>Agg:7gh@<gh=9cc99c"
+    },
+    {
+      "input": "abc123",
+      "expected": "7hhAAhc<:cc<"
+    },
+    {
+      "input": "Z9",
+      "expected": "@ic6"
+    }
+  ],
+  "login_response_vectors": [
+    {
+      "input": "login_ok",
+      "class": "success",
+      "message": "登录成功"
+    },
+    {
+      "input": "already_online",
+      "class": "already_online",
+      "message": "已在线"
+    },
+    {
+      "input": "login_error#E2531:User not found",
+      "class": "error_E2531",
+      "message": "login_error#E2531:User not found"
+    },
+    {
+      "input": "login_error#E9999:oops",
+      "class": "error_E9999",
+      "message": "login_error#E9999:oops"
+    },
+    {
+      "input": "logout_ok",
+      "class": "logout_ok",
+      "message": "注销成功"
+    },
+    {
+      "input": "not_online",
+      "class": "not_online",
+      "message": "当前不在线"
+    },
+    {
+      "input": "unexpected failure",
+      "class": "unknown",
+      "message": "unexpected failure"
+    }
+  ],
+  "status_response_vectors": [
+    {
+      "input": "jQuery_1712630100000({\"error\":\"ok\",\"user_name\":\"231040600203\",\"online_ip\":\"10.10.0.8\",\"sum_bytes\":12345678,\"sum_seconds\":321})",
+      "format": "jsonp",
+      "online": true,
+      "username": "231040600203",
+      "ip": "10.10.0.8",
+      "bytes": 12345678,
+      "seconds": 321
+    },
+    {
+      "input": "231040600203,321,10.10.0.8,12345678,0,0",
+      "format": "csv",
+      "online": true,
+      "username": "231040600203",
+      "ip": "10.10.0.8",
+      "bytes": 12345678,
+      "seconds": 321
+    },
+    {
+      "input": "not_online",
+      "format": "offline",
+      "online": false,
+      "username": "",
+      "ip": "",
+      "bytes": 0,
+      "seconds": 0
+    }
+  ],
+  "sanitize_vectors": [
+    {
+      "input": "\ufeff  '231040600203' \r\n",
+      "expected": "231040600203",
+      "diag": {
+        "had_cr": true,
+        "had_control": false,
+        "trimmed": true,
+        "unquoted": true
+      }
+    },
+    {
+      "input": "abc\u0000\u0007",
+      "expected": "abc",
+      "diag": {
+        "had_cr": false,
+        "had_control": true,
+        "trimmed": false,
+        "unquoted": false
+      }
+    }
+  ]
+}

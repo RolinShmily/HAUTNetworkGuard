@@ -5,15 +5,14 @@
 local api = {}
 local crypto = require("crypto")
 local log = require("log")
+local protocol = require("protocol")
 
--- 配置
 api.BASE_URL = "http://172.16.154.130"
 api.LOGIN_URL = "http://172.16.154.130:69/cgi-bin/srun_portal"
-api.USER_AGENT = "HAUTNetworkGuard/1.3.14 OpenWrt"
+api.USER_AGENT = "HAUTNetworkGuard/1.3.15 OpenWrt"
 
 local request_seq = 0
 
--- URL 编码: 仅允许 [A-Za-z0-9-._~] 不编码
 local function url_encode(str)
     if not str then return "" end
     return string.gsub(str, "([^%w%-%.%_%~])", function(c)
@@ -53,64 +52,62 @@ local function write_temp_file(path, content)
     return true
 end
 
--- 生成 jQuery 回调名
 local function gen_callback()
     local timestamp = os.time() * 1000 + math.random(0, 999)
     return "jQuery_" .. tostring(timestamp), timestamp
 end
 
-local function classify_login_response(response)
-    local body = tostring(response or "")
-    if body:find("login_ok") then
-        return "success", "登录成功"
-    end
-    if body:find("already_online") then
-        return "already_online", "已在线"
-    end
-
-    local error_code = body:match("E(%d+)")
-    if error_code == "2531" then
-        return "user_not_found", "login_error#E2531:User not found"
-    end
-    if error_code then
-        return "error_code", "login_error#E" .. error_code
+local function parse_curl_output(raw)
+    local body, http_code, time_total =
+        tostring(raw or ""):match("^(.*)\n__HAUT_CURL_META__:(%d+):([0-9%.]+)\n?$")
+    if not body then
+        return tostring(raw or ""), {
+            http_code = "000",
+            duration_ms = -1
+        }
     end
 
-    return "unknown", log.preview(body, 180)
+    return body, {
+        http_code = http_code,
+        duration_ms = math.floor((tonumber(time_total) or 0) * 1000 + 0.5)
+    }
 end
 
--- HTTP GET 请求
-local function http_get(url, req_id)
+local function http_get(url, req_id, action)
     local err_file = make_temp_path("haut-network-guard-curl-get")
     local cmd = string.format(
-        "curl -sS --connect-timeout 5 --max-time 8 -A %s %s 2>%s",
+        "curl -sS --connect-timeout 5 --max-time 8 -A %s " ..
+        "-w '\\n__HAUT_CURL_META__:%%{http_code}:%%{time_total}\\n' %s 2>%s",
         shell_quote(api.USER_AGENT),
         shell_quote(url),
         shell_quote(err_file)
     )
 
-    log.debug(string.format("[%s] HTTP GET %s", req_id, url))
+    log.debug(string.format("[%s] action=%s phase=request method=GET url=%s",
+        req_id, tostring(action or "get"), url))
     local handle = io.popen(cmd)
     if not handle then
         os.remove(err_file)
         return nil, "popen_failed"
     end
 
-    local result = handle:read("*a") or ""
+    local raw = handle:read("*a") or ""
     handle:close()
 
+    local body, meta = parse_curl_output(raw)
     local stderr = read_file(err_file)
     os.remove(err_file)
     if stderr ~= "" then
-        log.debug(string.format("[%s] HTTP GET stderr=%s", req_id, log.preview(stderr)))
+        log.debug(string.format("[%s] action=%s phase=stderr preview=%s",
+            req_id, tostring(action or "get"), log.preview(stderr)))
     end
 
-    log.debug(string.format("[%s] HTTP GET 响应=%s", req_id, log.bytes_summary(result)))
-    return result, nil
+    log.debug(string.format("[%s] action=%s phase=response http=%s elapsed_ms=%d body=%s",
+        req_id, tostring(action or "get"), meta.http_code, meta.duration_ms, log.bytes_summary(body)))
+    return body, nil, meta
 end
 
--- HTTP POST 请求
-local function http_post(url, body, req_id)
+local function http_post(url, body, req_id, action)
     local tmp_body = make_temp_path("haut-network-guard-body")
     local err_file = make_temp_path("haut-network-guard-curl-post")
     local ok, err = write_temp_file(tmp_body, body)
@@ -121,14 +118,15 @@ local function http_post(url, body, req_id)
     local cmd = string.format(
         "curl -sS --connect-timeout 5 --max-time 10 -A %s " ..
         "-H 'Content-Type: application/x-www-form-urlencoded' " ..
-        "--data-binary @%s %s 2>%s",
+        "--data-binary @%s -w '\\n__HAUT_CURL_META__:%%{http_code}:%%{time_total}\\n' %s 2>%s",
         shell_quote(api.USER_AGENT),
         shell_quote(tmp_body),
         shell_quote(url),
         shell_quote(err_file)
     )
 
-    log.debug(string.format("[%s] HTTP POST %s, body=%s", req_id, url, log.bytes_summary(body)))
+    log.debug(string.format("[%s] action=%s phase=request method=POST url=%s body=%s",
+        req_id, tostring(action or "post"), url, log.bytes_summary(body)))
     local handle = io.popen(cmd)
     if not handle then
         os.remove(tmp_body)
@@ -136,21 +134,23 @@ local function http_post(url, body, req_id)
         return nil, "popen_failed"
     end
 
-    local result = handle:read("*a") or ""
+    local raw = handle:read("*a") or ""
     handle:close()
 
+    local body_content, meta = parse_curl_output(raw)
     local stderr = read_file(err_file)
     os.remove(tmp_body)
     os.remove(err_file)
     if stderr ~= "" then
-        log.debug(string.format("[%s] HTTP POST stderr=%s", req_id, log.preview(stderr)))
+        log.debug(string.format("[%s] action=%s phase=stderr preview=%s",
+            req_id, tostring(action or "post"), log.preview(stderr)))
     end
 
-    log.debug(string.format("[%s] HTTP POST 响应=%s", req_id, log.bytes_summary(result)))
-    return result, nil
+    log.debug(string.format("[%s] action=%s phase=response http=%s elapsed_ms=%d body=%s",
+        req_id, tostring(action or "post"), meta.http_code, meta.duration_ms, log.bytes_summary(body_content)))
+    return body_content, nil, meta
 end
 
--- 发送登录请求 (SRUN3K POST 协议，无 IP 参数)
 function api.login(username, password, context)
     context = context or {}
     local req_id = next_request_id("login")
@@ -159,11 +159,11 @@ function api.login(username, password, context)
     password = tostring(password or "")
 
     log.info(string.format(
-        "[%s] 自动登录请求 source=%s user=%s user_len=%d pass_len=%d",
+        "[%s] action=login phase=request source=%s user=%s user_len=%d pass_len=%d",
         req_id, source, log.mask_username(username), #username, #password
     ))
     if username:find("[%z\1-\31\127]") then
-        log.warn(string.format("[%s] 用户名包含控制字符，可能导致 E2531", req_id))
+        log.warn(string.format("[%s] action=login phase=warn class=control_chars_in_username", req_id))
     end
 
     local enc_username = crypto.encrypt_username(username)
@@ -175,54 +175,69 @@ function api.login(username, password, context)
         .. "&mac=02%3A00%3A00%3A00%3A00%3A00"
 
     log.debug(string.format(
-        "[%s] 登录编码长度 user_raw=%d user_enc=%d pass_raw=%d pass_enc=%d",
+        "[%s] action=login phase=encode user_raw=%d user_enc=%d pass_raw=%d pass_enc=%d",
         req_id, #username, #enc_username, #password, #enc_password
     ))
 
-    local response, post_err = http_post(api.LOGIN_URL, body, req_id)
+    local response, post_err, meta = http_post(api.LOGIN_URL, body, req_id, "login")
     if post_err then
-        log.error(string.format("[%s] 登录请求失败: %s", req_id, post_err))
+        log.error(string.format("[%s] action=login phase=error class=network_error msg=%s",
+            req_id, post_err))
         return false, "登录请求失败", "network_error"
     end
     if response == "" then
-        log.error(string.format("[%s] 登录请求无响应", req_id))
+        log.error(string.format("[%s] action=login phase=error class=empty_response http=%s elapsed_ms=%d",
+            req_id, tostring(meta and meta.http_code or "000"), tonumber(meta and meta.duration_ms or -1)))
         return false, "登录请求失败", "network_error"
     end
 
-    local category, message = classify_login_response(response)
-    log.info(string.format("[%s] 登录响应分类=%s, msg=%s", req_id, category, message))
-    if category == "success" or category == "already_online" then
-        return true, message, category
-    end
+    local classified = protocol.classify_login_response(response)
+    log.info(string.format(
+        "[%s] action=login phase=response class=%s http=%s elapsed_ms=%d msg=%s",
+        req_id,
+        tostring(classified.category),
+        tostring(meta and meta.http_code or "000"),
+        tonumber(meta and meta.duration_ms or -1),
+        log.preview(classified.message, 180)
+    ))
 
-    log.debug(string.format("[%s] 登录响应预览=%s", req_id, log.preview(response, 180)))
-    return false, message, category
+    if classified.ok then
+        return true, classified.message, classified.category
+    end
+    return false, classified.message, classified.category
 end
 
--- 发送注销请求
 function api.logout()
     local req_id = next_request_id("logout")
     local body = "action=logout"
 
-    log.info(string.format("[%s] 注销请求", req_id))
-    local response, post_err = http_post(api.LOGIN_URL, body, req_id)
+    local response, post_err, meta = http_post(api.LOGIN_URL, body, req_id, "logout")
     if post_err then
-        log.error(string.format("[%s] 注销请求失败: %s", req_id, post_err))
+        log.error(string.format("[%s] action=logout phase=error class=network_error msg=%s",
+            req_id, post_err))
         return false, "注销请求失败"
     end
     if response == "" then
-        log.error(string.format("[%s] 注销请求无响应", req_id))
+        log.error(string.format("[%s] action=logout phase=error class=empty_response http=%s elapsed_ms=%d",
+            req_id, tostring(meta and meta.http_code or "000"), tonumber(meta and meta.duration_ms or -1)))
         return false, "注销请求失败"
     end
 
-    log.info(string.format("[%s] 注销响应=%s", req_id, log.preview(response, 120)))
-    if response:find("logout_ok") or response:find("not_online") then
-        return true, "注销成功"
+    local classified = protocol.classify_login_response(response)
+    log.info(string.format(
+        "[%s] action=logout phase=response class=%s http=%s elapsed_ms=%d msg=%s",
+        req_id,
+        tostring(classified.category),
+        tostring(meta and meta.http_code or "000"),
+        tonumber(meta and meta.duration_ms or -1),
+        log.preview(classified.message, 120)
+    ))
+    if classified.category == "logout_ok" or classified.category == "not_online" then
+        return true, classified.message
     end
-    return false, log.preview(response, 180)
+    return false, classified.message
 end
 
--- 获取用户信息
 function api.get_user_info(source)
     local req_id = next_request_id("status")
     source = source or "unknown"
@@ -232,39 +247,38 @@ function api.get_user_info(source)
         api.BASE_URL, callback, math.floor(timestamp)
     )
 
-    local response, get_err = http_get(url, req_id)
+    local response, get_err, meta = http_get(url, req_id, "status")
     if get_err or not response or response == "" then
-        log.debug(string.format("[%s] 状态检测无响应 source=%s", req_id, source))
-        return nil
-    end
-    if response:find("not_online") then
-        log.debug(string.format("[%s] 状态检测: not_online", req_id))
+        log.debug(string.format("[%s] action=status phase=response class=offline source=%s http=%s elapsed_ms=%d",
+            req_id, source, tostring(meta and meta.http_code or "000"), tonumber(meta and meta.duration_ms or -1)))
         return nil
     end
 
-    local username = response:match('"user_name":"([^"]+)"')
-    local sum_bytes = response:match('"sum_bytes":(%d+)')
-    local sum_seconds = response:match('"sum_seconds":(%d+)')
-    local user_ip = response:match('"online_ip":"([^"]+)"')
-
-    if username then
+    local parsed, format = protocol.parse_status_response(response)
+    if parsed then
         log.debug(string.format(
-            "[%s] 状态检测在线 user=%s ip=%s",
-            req_id, log.mask_username(username), tostring(user_ip or "")
+            "[%s] action=status phase=parse class=online_%s user=%s ip=%s bytes=%d seconds=%d",
+            req_id, tostring(format), log.mask_username(parsed.username), tostring(parsed.ip or ""),
+            tonumber(parsed.bytes or 0), tonumber(parsed.seconds or 0)
         ))
-        return {
-            username = username,
-            ip = user_ip or "",
-            bytes = tonumber(sum_bytes) or 0,
-            seconds = tonumber(sum_seconds) or 0
-        }
+        log.info(string.format("[%s] action=status phase=response class=online_%s source=%s http=%s elapsed_ms=%d",
+            req_id, tostring(format), source, tostring(meta and meta.http_code or "000"),
+            tonumber(meta and meta.duration_ms or -1)))
+        return parsed
     end
 
-    log.debug(string.format("[%s] 状态响应未匹配预期字段: %s", req_id, log.preview(response, 180)))
+    if format == "offline" then
+        log.debug(string.format("[%s] action=status phase=response class=offline source=%s http=%s elapsed_ms=%d",
+            req_id, source, tostring(meta and meta.http_code or "000"), tonumber(meta and meta.duration_ms or -1)))
+        return nil
+    end
+
+    log.warn(string.format("[%s] action=status phase=response class=%s source=%s http=%s elapsed_ms=%d preview=%s",
+        req_id, tostring(format), source, tostring(meta and meta.http_code or "000"),
+        tonumber(meta and meta.duration_ms or -1), log.preview(response, 180)))
     return nil
 end
 
--- 测试网络连接
 function api.test_connection()
     local cmd = "curl -s --connect-timeout 3 'http://www.apple.com/library/test/success.html'"
     local handle = io.popen(cmd)

@@ -6,7 +6,7 @@ class AppConfig {
 
     // 应用信息
     static let appName = "HAUT Network Guard"
-    static let version = "1.3.14"
+    static let version = "1.3.15"
     static let author = "YellowPeach"
     static let website = "https://github.com/yellowpeachxgp/HAUTNetworkGuard"
     static let qqGroup = "789860526"
@@ -48,7 +48,11 @@ class AppConfig {
         }
         set {
             sessionPassword = newValue
-            UserDefaults.standard.set(newValue, forKey: passwordKey)
+            if autoSave {
+                UserDefaults.standard.set(newValue, forKey: passwordKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: passwordKey)
+            }
         }
     }
     

@@ -2,7 +2,7 @@
 # HAUT Network Guard - OpenWrt 一键安装脚本
 # 用法:
 #   最新 main: wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/main/OpenWrt/install-online.sh | sh
-#   固定版本:   wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.14/OpenWrt/install-online.sh | sh -s -- v1.3.14
+#   固定版本:   wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.15/OpenWrt/install-online.sh | sh -s -- v1.3.15
 
 set -e
 
@@ -48,6 +48,7 @@ echo "[3/5] 下载程序文件..."
 download_file "$REPO_URL/files/usr/lib/haut-network-guard/crypto.lua" "$INSTALL_DIR/crypto.lua"
 download_file "$REPO_URL/files/usr/lib/haut-network-guard/api.lua" "$INSTALL_DIR/api.lua"
 download_file "$REPO_URL/files/usr/lib/haut-network-guard/log.lua" "$INSTALL_DIR/log.lua"
+download_file "$REPO_URL/files/usr/lib/haut-network-guard/protocol.lua" "$INSTALL_DIR/protocol.lua"
 download_file "$REPO_URL/files/usr/lib/haut-network-guard/main.lua" "$INSTALL_DIR/main.lua"
 
 echo "[4/5] 下载配置文件..."
@@ -64,7 +65,7 @@ chmod 600 /etc/config/haut-network-guard
 
 echo ""
 echo "=========================================="
-echo "  安装完成! (v1.3.14)"
+echo "  安装完成! (v1.3.15)"
 echo "=========================================="
 echo ""
 echo "下一步 - 配置账号:"

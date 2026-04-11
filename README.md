@@ -31,7 +31,7 @@
 
 ### macOS
 
-1. 下载 `HAUTNetworkGuard-macOS.dmg`
+1. 下载 `HAUTNetworkGuard.dmg`
 2. 打开 DMG 文件，将应用拖入 Applications 文件夹
 3. 双击运行
 
@@ -47,8 +47,8 @@
 
 ### Windows
 
-1. 下载 `HAUTNetworkGuard-Windows.exe`
-2. 双击运行即可（无需安装）
+1. 下载 `HAUTNetworkGuard-Windows.zip`
+2. 解压后运行 `HAUTNetworkGuard.exe`（无需安装）
 
 > **技术栈**: Windows 版本使用 Qt 6 (C++) 开发，提供原生系统托盘支持。
 > 
@@ -58,7 +58,12 @@
 
 详见 [OpenWrt/README.md](OpenWrt/README.md)
 
-**一键安装：**
+**固定版本安装（推荐生产环境）：**
+```bash
+wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.15/OpenWrt/install-online.sh | sh -s -- v1.3.15
+```
+
+**安装最新 main（适合测试）：**
 ```bash
 wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/main/OpenWrt/install-online.sh | sh
 ```
@@ -126,6 +131,8 @@ cmake --build . --config Release
 
 ## 项目结构
 
+以下为当前核心结构示意，非穷举清单：
+
 ```
 HAUTNetworkGuard/
 ├── macOS/                      # macOS 版本 (Swift)
@@ -133,7 +140,9 @@ HAUTNetworkGuard/
 │   │   ├── main.swift
 │   │   ├── AppDelegate.swift
 │   │   ├── Config.swift
+│   │   ├── Logger.swift
 │   │   ├── Encryption.swift
+│   │   ├── SrunProtocol.swift
 │   │   ├── SrunAPI.swift
 │   │   ├── StatusBarController.swift
 │   │   ├── SettingsWindow.swift
@@ -143,6 +152,7 @@ HAUTNetworkGuard/
 │   │   └── LaunchManager.swift
 │   ├── Info.plist
 │   ├── build.sh
+│   ├── tests/
 │   ├── create-dmg.sh
 │   ├── install.sh
 │   └── uninstall.sh
@@ -154,11 +164,15 @@ HAUTNetworkGuard/
 │   │   ├── config.h/cpp       # 配置管理 (QSettings)
 │   │   ├── api.h/cpp          # 网络 API
 │   │   ├── encryption.h/cpp   # SRUN3K 加密
+│   │   ├── protocol_utils.h/cpp # 响应分类/状态解析纯逻辑
+│   │   ├── logger.h/cpp       # 文件日志与脱敏
 │   │   └── trayicon.h/cpp     # 系统托盘
+│   ├── tests/
+│   │   └── windows_smoke_tests.cpp
 │   ├── CMakeLists.txt
 │   └── AIREADME.md
 │
-├── Windows-Rust-Deprecated/    # ⚠️ 已弃用的 Rust 版本
+├── Windows-Rust-Deprecated/    # ⚠️ 已弃用的历史实现，仅供参考
 │   ├── src/
 │   ├── Cargo.toml
 │   └── DEPRECATED.md
@@ -168,12 +182,27 @@ HAUTNetworkGuard/
 │   │   ├── usr/lib/haut-network-guard/
 │   │   │   ├── main.lua
 │   │   │   ├── api.lua
+│   │   │   ├── log.lua
+│   │   │   ├── protocol.lua
 │   │   │   └── crypto.lua
 │   │   ├── etc/init.d/
 │   │   └── etc/config/
 │   ├── install.sh
+│   ├── install-online.sh
+│   ├── upgrade-online.sh
 │   ├── uninstall.sh
 │   └── README.md
+│
+├── docs/
+│   ├── LOGGING_CONTRACT.md
+│   ├── SRUN3K_PROTOCOL_SPEC.md
+│   └── PROJECT_BASELINE_AND_PLAN_2026-04-11.md
+│
+├── tests/
+│   ├── fixtures/protocol_vectors.json
+│   ├── test_protocol_contract.py
+│   ├── test_docs_contract.py
+│   └── test_openwrt_modules.lua
 │
 ├── .github/workflows/          # GitHub Actions CI/CD
 │   └── build.yml
@@ -210,7 +239,7 @@ cd macOS
 
 ### Windows
 
-1. 删除 `HAUTNetworkGuard-Windows.exe`
+1. 删除解压后的 `HAUTNetworkGuard-Windows/` 目录
 2. （可选）运行 `regedit`，删除：
    - `HKEY_CURRENT_USER\Software\HAUTNetworkGuard`
    - `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` 下的 `HAUTNetworkGuard` 项
@@ -223,6 +252,23 @@ cd OpenWrt
 ```
 
 ## 版本历史
+
+### v1.3.15 (2026-04)
+- **文档**: 修正文档与当前代码、Release 资产和安装链路的不一致
+  - 主 README 修正为实际发布资产 `HAUTNetworkGuard-Windows.zip` 和 `HAUTNetworkGuard.dmg`
+  - OpenWrt 文档同时提供 `main` 跟随安装和固定版本安装示例
+  - Windows/macOS 平台内部技术文档更新到当前架构与版本
+- **日志**: 统一三端请求日志字段与账号脱敏规则
+  - 统一 `action / phase / class / elapsed_ms` 语义
+  - 修复 Windows 用户名加密日志泄漏原始账号的问题
+  - OpenWrt 补充 `curl` 耗时和 HTTP 状态码日志
+- **测试/CI**: 新增协议、文档和 OpenWrt 纯逻辑 contract tests
+  - 增加共享协议向量、OpenWrt 配置清洗与登录响应分类测试
+  - CI 新增 docs/protocol contract 校验，并扩大 OpenWrt shell 校验范围
+- **架构**: 提炼共享规范与可测试纯逻辑
+  - macOS 日志模块拆分为独立 `Logger.swift`
+  - OpenWrt 配置清洗与登录响应分类抽离到 `protocol.lua`
+- **全平台**: 版本号同步更新为 1.3.15
 
 ### v1.3.14 (2026-04)
 - **Release/OpenWrt**: 修复版本发布与一键安装链路漂移

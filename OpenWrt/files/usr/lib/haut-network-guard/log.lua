@@ -55,9 +55,8 @@ function log.mask_username(value)
     local text = tostring(value or "")
     local length = #text
     if length == 0 then return "<empty>" end
-    if length == 1 then return "*" end
-    if length == 2 then return text:sub(1, 1) .. "*" end
-    return text:sub(1, 2) .. string.rep("*", length - 3) .. text:sub(length, length)
+    if length <= 4 then return string.rep("*", length) end
+    return text:sub(1, 2) .. string.rep("*", length - 4) .. text:sub(length - 1, length)
 end
 
 function log.mask_secret(value)

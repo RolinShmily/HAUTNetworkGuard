@@ -1,0 +1,122 @@
+# SRUN3K Protocol Spec
+
+日期: 2026-04-11
+
+## 1. 固定端点
+
+- 状态检查:
+  - `http://172.16.154.130/cgi-bin/rad_user_info`
+- 登录/注销:
+  - `http://172.16.154.130:69/cgi-bin/srun_portal`
+
+## 2. 登录参数
+
+固定字段:
+
+- `action=login`
+- `ac_id=1`
+- `drop=0`
+- `pop=1`
+- `type=10`
+- `n=117`
+- `mbytes=0`
+- `minutes=0`
+- `mac=02:00:00:00:00:00`
+
+## 3. 用户名加密
+
+规则:
+
+- 每个字符 ASCII `+4`
+- 前缀固定为 `{SRUN3}\r\n`
+
+示例:
+
+- 输入: `231040600203`
+- 输出: `{SRUN3}\r\n675484:44647`
+
+## 4. 密码加密
+
+规则:
+
+- 密钥固定: `1234567890`
+- 使用反向密钥索引:
+  - `key[len - 1 - (i % len)]`
+- `XOR` 后拆分为:
+  - 低 4 位 `+ 0x36`
+  - 高 4 位 `+ 0x63`
+- 偶数索引:
+  - `low + high`
+- 奇数索引:
+  - `high + low`
+
+示例:
+
+- `password123` -> `6gh>Agg:7gh@<gh=9cc99c`
+- `abc123` -> `7hhAAhc<:cc<`
+- `Z9` -> `@ic6`
+
+## 5. 状态响应
+
+支持两种格式:
+
+### JSONP
+
+格式:
+
+```text
+jQuery_<timestamp>({...})
+```
+
+优先读取字段:
+
+- `user_name`
+- `online_ip`
+- `sum_bytes`
+- `sum_seconds`
+- `error`
+
+### CSV
+
+格式:
+
+```text
+username,seconds,ip,bytes,...
+```
+
+## 6. 登录响应分类
+
+- 包含 `login_ok`:
+  - `success`
+- 包含 `already_online`:
+  - `already_online`
+- 包含 `logout_ok`:
+  - `logout_ok`
+- 包含 `not_online`:
+  - `not_online`
+- 包含任意 `E####`:
+  - `error_E####`
+- 空响应:
+  - `empty`
+- 其他:
+  - `unknown`
+
+## 7. OpenWrt UCI 清洗规则
+
+配置读取后统一执行:
+
+- 去除 UTF-8 BOM
+- 去除 `\r`
+- 去除控制字符
+- 去除首尾空白
+- 去除首尾成对引号
+
+## 8. 共享回归向量
+
+共享回归向量位于:
+
+- `tests/fixtures/protocol_vectors.json`
+- `tests/test_openwrt_modules.lua`
+- `tests/test_protocol_contract.py`
+- `Windows/tests/windows_smoke_tests.cpp`
+- `macOS/tests/SmokeTests.swift`

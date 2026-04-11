@@ -103,9 +103,10 @@ QString Logger::boolText(bool value) { return value ? "on" : "off"; }
 QString Logger::maskUsername(const QString &username) {
   if (username.isEmpty())
     return "<empty>";
-  if (username.size() <= 2)
+  if (username.size() <= 4)
     return QString("*").repeated(username.size());
-  return username.left(2) + QString("*").repeated(username.size() - 2);
+  return username.left(2) + QString("*").repeated(username.size() - 4) +
+         username.right(2);
 }
 
 QString Logger::maskSecret(const QString &value, int keepPrefix,

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(HAUTNetworkGuard VERSION 1.3.14 LANGUAGES CXX)
+project(HAUTNetworkGuard VERSION 1.3.15 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +17,7 @@ set(SOURCES
     src/config.cpp
     src/api.cpp
     src/encryption.cpp
+    src/protocol_utils.cpp
     src/trayicon.cpp
     src/logger.cpp
 )
@@ -27,9 +28,12 @@ set(HEADERS
     src/config.h
     src/api.h
     src/encryption.h
+    src/protocol_utils.h
     src/trayicon.h
     src/logger.h
 )
+
+enable_testing()
 
 # 资源文件
 set(RESOURCES
@@ -51,10 +55,30 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Network
 )
 
+add_executable(haut_smoke_tests
+    tests/windows_smoke_tests.cpp
+    src/config.cpp
+    src/encryption.cpp
+    src/logger.cpp
+    src/protocol_utils.cpp
+    src/config.h
+    src/encryption.h
+    src/logger.h
+    src/protocol_utils.h
+)
+
+target_link_libraries(haut_smoke_tests PRIVATE
+    Qt6::Core
+)
+
+add_test(NAME windows_smoke_tests COMMAND haut_smoke_tests)
+
 # Windows 特定设置
 if(WIN32)
     # 静态链接运行时
     set_property(TARGET ${PROJECT_NAME} PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    set_property(TARGET haut_smoke_tests PROPERTY
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     
     # 添加版本信息

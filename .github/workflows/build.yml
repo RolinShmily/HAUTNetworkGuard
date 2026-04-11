@@ -22,11 +22,22 @@ jobs:
         run: |
           find OpenWrt/files/usr/lib/haut-network-guard -name '*.lua' -print -exec luac5.3 -p {} \;
 
+      - name: Validate Protocol And Docs Contracts
+        run: |
+          python3 tests/test_protocol_contract.py
+          python3 tests/test_docs_contract.py
+
+      - name: Validate OpenWrt Modules
+        run: |
+          LUA_PATH="OpenWrt/files/usr/lib/haut-network-guard/?.lua;;" lua5.3 tests/test_openwrt_modules.lua
+
       - name: Validate OpenWrt Shell Scripts
         run: |
           sh -n OpenWrt/install.sh
           sh -n OpenWrt/install-online.sh
+          sh -n OpenWrt/uninstall.sh
           sh -n OpenWrt/uninstall-online.sh
+          sh -n OpenWrt/upgrade-online.sh
           sh -n OpenWrt/files/etc/init.d/haut-network-guard
 
   build-windows-qt:
@@ -53,6 +64,9 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
+      - name: Run Windows Smoke Tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
       - name: Deploy Qt Runtime
         run: |
           mkdir HAUTNetworkGuard-Windows
@@ -77,7 +91,8 @@ jobs:
       - name: Build macOS App
         run: |
           cd macOS
-          chmod +x build.sh create-dmg.sh
+          chmod +x build.sh create-dmg.sh tests/run_smoke_tests.sh
+          ./tests/run_smoke_tests.sh
           ./build.sh
           ./create-dmg.sh
 
