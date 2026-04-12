@@ -1,4 +1,5 @@
 name: Build and Release
+run-name: ${{ github.workflow }} · ${{ github.ref_name }}
 
 on:
   push:
@@ -6,12 +7,23 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate-openwrt:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Lua
         run: |
@@ -42,12 +54,13 @@ jobs:
 
   build-windows-qt:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+        uses: jurplel/install-qt-action@v4.3.1
         with:
           version: '6.6.0'
           host: 'windows'
@@ -74,19 +87,26 @@ jobs:
           windeployqt HAUTNetworkGuard-Windows\HAUTNetworkGuard.exe --release --no-translations --no-opengl-sw
 
       - name: Create Installer ZIP
-        run: Compress-Archive -Path HAUTNetworkGuard-Windows -DestinationPath HAUTNetworkGuard-Windows.zip
+        run: |
+          if (Test-Path HAUTNetworkGuard-Windows.zip) {
+            Remove-Item HAUTNetworkGuard-Windows.zip -Force
+          }
+          Compress-Archive -Path HAUTNetworkGuard-Windows -DestinationPath HAUTNetworkGuard-Windows.zip
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-build
           path: HAUTNetworkGuard-Windows.zip
+          if-no-files-found: error
+          retention-days: 7
 
   build-macos:
     runs-on: macos-14
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Build macOS App
         run: |
@@ -102,29 +122,32 @@ jobs:
           echo "代码签名验证通过"
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-build
           path: macOS/build/HAUTNetworkGuard.dmg
+          if-no-files-found: error
+          retention-days: 7
 
   release:
     needs: [validate-openwrt, build-windows-qt, build-macos]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download Windows Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-build
           path: ./
 
       - name: Download macOS Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: macos-build
           path: ./
@@ -134,7 +157,7 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           name: "${{ steps.get_version.outputs.VERSION }}"
           body: |
