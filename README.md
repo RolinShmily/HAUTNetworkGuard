@@ -60,7 +60,7 @@
 
 **固定版本安装（推荐生产环境）：**
 ```bash
-wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.16/OpenWrt/install-online.sh | sh -s -- v1.3.16
+wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.17/OpenWrt/install-online.sh | sh -s -- v1.3.17
 ```
 
 **安装最新 main（适合测试）：**
@@ -252,6 +252,18 @@ cd OpenWrt
 ```
 
 ## 版本历史
+
+### v1.3.17 (2026-04)
+- **macOS**: 修复更新检测在代理/PAC/TLS 环境下的 HTTP2/安全连接失败
+  - 更新检测主链路改为 `curl --http1.1 --noproxy '*'`，避免被本地 `127.0.0.1:7890` 等系统代理链路劫持
+  - 新增更新检测 transport mode、代理快照、底层错误链与回退结果日志
+  - 保留 `URLSession` 作为失败回退，提升复杂网络环境下的兼容性
+- **macOS**: 修复校园网直连客户端超时与错误可观测性
+  - `DirectHTTPClient` 改为非阻塞 `connect + poll` 超时控制，避免状态检查异常拖到约 75 秒
+  - `send/recv/connect` 错误统一映射为可读日志，不再退化为 `error 0/2`
+  - 补充主机解析、接口绑定、响应长度等诊断字段，便于后续排障
+- **全平台**: 版本号与文档同步更新为 1.3.17
+  - Windows / macOS / OpenWrt 显示版本、User-Agent、安装命令、AI 文档和契约测试全部对齐
 
 ### v1.3.16 (2026-04)
 - **Windows**: 修复开机自启动与交互状态机收口问题

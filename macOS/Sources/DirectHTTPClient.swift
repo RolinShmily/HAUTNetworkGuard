@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Darwin
 
 /// 绕过系统代理/VPN，通过物理网络接口直连内网网关的 HTTP 客户端
 /// 使用 POSIX socket + IP_BOUND_IF 在内核层面绑定物理接口，
@@ -55,7 +56,7 @@ class DirectHTTPClient {
     /// 发送 GET 请求
     func get(url: String, completion: @escaping (Result<String, Error>) -> Void) {
         guard let parsed = parseURL(url) else {
-            completion(.failure(HTTPError.invalidURL))
+            completion(.failure(HTTPError.invalidURL("无效的 URL: \(url)")))
             return
         }
         let request = "GET \(parsed.path) HTTP/1.1\r\n" +
@@ -67,7 +68,7 @@ class DirectHTTPClient {
     /// 发送 POST 请求（application/x-www-form-urlencoded）
     func post(url: String, body: String, completion: @escaping (Result<String, Error>) -> Void) {
         guard let parsed = parseURL(url) else {
-            completion(.failure(HTTPError.invalidURL))
+            completion(.failure(HTTPError.invalidURL("无效的 URL: \(url)")))
             return
         }
         let bodyBytes = body.data(using: .utf8) ?? Data()
@@ -94,19 +95,25 @@ class DirectHTTPClient {
 
             // 解析目标地址
             guard var addr = self.resolveHost(host, port: port) else {
-                completion(.failure(HTTPError.invalidURL))
+                completion(.failure(HTTPError.invalidURL("无法解析主机 \(host):\(port)")))
                 return
             }
+
+            let interfaceForRequest = self.waitForInterfaceName(timeout: 1.0)
+            Logger.debug(
+                "[DirectHTTP] 准备发起请求 host=\(host) port=\(port) interface=\(interfaceForRequest ?? "system_default") timeout=\(Int(self.timeout))s"
+            )
 
             // 创建 TCP socket
             let fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
             guard fd >= 0 else {
-                completion(.failure(HTTPError.socketError("socket() 失败, errno=\(errno)")))
+                completion(.failure(self.socketError(phase: "socket", code: errno)))
                 return
             }
+            defer { Darwin.close(fd) }
 
             // 绑定到物理接口（绕过 TUN 路由和代理）
-            if let ifName = self.waitForInterfaceName(timeout: 1.0) {
+            if let ifName = interfaceForRequest {
                 let ifIndex = if_nametoindex(ifName)
                 if ifIndex > 0 {
                     var idx = ifIndex
@@ -122,37 +129,38 @@ class DirectHTTPClient {
                 Logger.warn("[DirectHTTP] 请求开始时仍未解析到物理接口，将使用系统默认路由")
             }
 
+            // 避免在写入已关闭 socket 时触发 SIGPIPE
+            var noSigPipe: Int32 = 1
+            _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+
             // 设置超时
             var tv = timeval(tv_sec: Int(self.timeout), tv_usec: 0)
             setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
             setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
 
-            // 连接
-            let connectResult = withUnsafePointer(to: &addr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    Darwin.connect(fd, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
-                }
+            // connect 在 macOS 上不会遵守 SO_SNDTIMEO，需要显式做非阻塞超时控制
+            let originalFlags = fcntl(fd, F_GETFL, 0)
+            if originalFlags >= 0 {
+                _ = fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK)
             }
-            if connectResult < 0 {
-                let err = errno
-                Darwin.close(fd)
-                if err == ETIMEDOUT {
-                    completion(.failure(HTTPError.timeout))
-                } else {
-                    completion(.failure(HTTPError.socketError("connect() 失败, errno=\(err)")))
-                }
+
+            let connectResult = self.connectWithTimeout(fd: fd, address: &addr)
+            if originalFlags >= 0 {
+                _ = fcntl(fd, F_SETFL, originalFlags)
+            }
+
+            if let connectError = connectResult {
+                completion(.failure(connectError))
                 return
             }
 
             // 发送请求
             guard let requestData = request.data(using: .utf8) else {
-                Darwin.close(fd)
-                completion(.failure(HTTPError.invalidURL))
+                completion(.failure(HTTPError.invalidURL("请求编码失败")))
                 return
             }
             let sent = self.sendAll(fd: fd, data: requestData)
             if let sentError = sent {
-                Darwin.close(fd)
                 completion(.failure(sentError))
                 return
             }
@@ -165,25 +173,25 @@ class DirectHTTPClient {
                 if n == 0 { break }
                 if n < 0 {
                     let err = errno
-                    Darwin.close(fd)
-                    if err == ETIMEDOUT {
-                        completion(.failure(HTTPError.timeout))
+                    if self.isTimeoutErrno(err) {
+                        completion(.failure(HTTPError.timeout(phase: "recv")))
                     } else {
-                        completion(.failure(HTTPError.socketError("recv() 失败, errno=\(err)")))
+                        completion(.failure(self.socketError(phase: "recv", code: err)))
                     }
                     return
                 }
                 responseData.append(buffer, count: n)
             }
-            Darwin.close(fd)
 
             // 解析 HTTP body
             if let body = self.extractHTTPBody(from: responseData) {
+                Logger.debug("[DirectHTTP] 收到响应 host=\(host) port=\(port) bytes=\(responseData.count) body_chars=\(body.count)")
                 completion(.success(body))
             } else if let str = String(data: responseData, encoding: .utf8) {
+                Logger.debug("[DirectHTTP] 收到原始响应 host=\(host) port=\(port) bytes=\(responseData.count) body_chars=\(str.count)")
                 completion(.success(str))
             } else {
-                completion(.failure(HTTPError.invalidResponse))
+                completion(.failure(HTTPError.invalidResponse("响应不是有效 UTF-8，bytes=\(responseData.count)")))
             }
         }
     }
@@ -197,6 +205,7 @@ class DirectHTTPClient {
 
         // 先尝试直接解析 IP
         if inet_pton(AF_INET, host, &addr.sin_addr) == 1 {
+            Logger.debug("[DirectHTTP] 主机直连解析成功 host=\(host)")
             return addr
         }
 
@@ -213,6 +222,7 @@ class DirectHTTPClient {
         if ai.pointee.ai_family == AF_INET {
             let sin = ai.pointee.ai_addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee }
             addr.sin_addr = sin.sin_addr
+            Logger.debug("[DirectHTTP] DNS 解析成功 host=\(host)")
             return addr
         }
         return nil
@@ -270,7 +280,7 @@ class DirectHTTPClient {
     private func sendAll(fd: Int32, data: Data) -> HTTPError? {
         return data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress else {
-                return HTTPError.invalidURL
+                return HTTPError.invalidURL("请求数据为空")
             }
 
             let basePointer = baseAddress.assumingMemoryBound(to: UInt8.self)
@@ -279,10 +289,10 @@ class DirectHTTPClient {
                 let sent = Darwin.send(fd, basePointer.advanced(by: offset), data.count - offset, 0)
                 if sent <= 0 {
                     let err = errno
-                    if err == ETIMEDOUT {
-                        return HTTPError.timeout
+                    if isTimeoutErrno(err) {
+                        return HTTPError.timeout(phase: "send")
                     }
-                    return HTTPError.socketError("send() 失败, errno=\(err)")
+                    return socketError(phase: "send", code: err)
                 }
                 offset += sent
             }
@@ -291,21 +301,76 @@ class DirectHTTPClient {
         }
     }
 
-    enum HTTPError: Error, CustomStringConvertible {
-        case invalidURL
-        case timeout
-        case invalidResponse
+    private func connectWithTimeout(fd: Int32, address: inout sockaddr_in) -> HTTPError? {
+        let connectResult = withUnsafePointer(to: &address) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                Darwin.connect(fd, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+
+        if connectResult == 0 {
+            return nil
+        }
+
+        let err = errno
+        guard err == EINPROGRESS else {
+            if isTimeoutErrno(err) {
+                return HTTPError.timeout(phase: "connect")
+            }
+            return socketError(phase: "connect", code: err)
+        }
+
+        var descriptor = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        let selected = poll(&descriptor, 1, Int32(timeout * 1000))
+        if selected == 0 {
+            return HTTPError.timeout(phase: "connect")
+        }
+        if selected < 0 {
+            return socketError(phase: "poll(connect)", code: errno)
+        }
+
+        var socketErrorCode: Int32 = 0
+        var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+        if getsockopt(fd, SOL_SOCKET, SO_ERROR, &socketErrorCode, &socketErrorLength) < 0 {
+            return socketError(phase: "getsockopt(connect)", code: errno)
+        }
+        if socketErrorCode != 0 {
+            if isTimeoutErrno(socketErrorCode) {
+                return HTTPError.timeout(phase: "connect")
+            }
+            return socketError(phase: "connect", code: socketErrorCode)
+        }
+
+        return nil
+    }
+
+    private func isTimeoutErrno(_ code: Int32) -> Bool {
+        code == ETIMEDOUT || code == EAGAIN || code == EWOULDBLOCK
+    }
+
+    private func socketError(phase: String, code: Int32) -> HTTPError {
+        let message = String(cString: strerror(code))
+        return .socketError("\(phase) 失败, errno=\(code) (\(message))")
+    }
+
+    enum HTTPError: Error, LocalizedError, CustomStringConvertible {
+        case invalidURL(String)
+        case timeout(phase: String)
+        case invalidResponse(String)
         case socketError(String)
 
         var description: String {
             switch self {
-            case .invalidURL: return "无效的 URL"
-            case .timeout: return "请求超时"
-            case .invalidResponse: return "无效的响应"
+            case .invalidURL(let message):
+                return message
+            case .timeout(let phase):
+                return "请求超时 (\(phase))"
+            case .invalidResponse(let message):
+                return message
             case .socketError(let msg): return "Socket 错误: \(msg)"
             }
         }
 
-        var localizedDescription: String { description }
+        var errorDescription: String? { description }
     }
 }

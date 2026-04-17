@@ -9,7 +9,7 @@ local protocol = require("protocol")
 
 api.BASE_URL = "http://172.16.154.130"
 api.LOGIN_URL = "http://172.16.154.130:69/cgi-bin/srun_portal"
-api.USER_AGENT = "HAUTNetworkGuard/1.3.16 OpenWrt"
+api.USER_AGENT = "HAUTNetworkGuard/1.3.17 OpenWrt"
 
 local request_seq = 0
 
