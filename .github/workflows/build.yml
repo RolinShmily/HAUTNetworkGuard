@@ -68,14 +68,16 @@ jobs:
           arch: 'win64_msvc2019_64'
           modules: 'qtnetworkauth'
 
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+        with:
+          msbuild-architecture: x64
 
       - name: Configure CMake
-        run: cmake -B build -S Windows -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -S Windows -G "Visual Studio 17 2022" -A x64
         
       - name: Build
-        run: cmake --build build --config Release
+        run: cmake --build build --config Release --parallel
 
       - name: Run Windows Smoke Tests
         run: ctest --test-dir build -C Release --output-on-failure
