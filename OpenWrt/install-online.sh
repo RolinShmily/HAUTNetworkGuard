@@ -2,7 +2,7 @@
 # HAUT Network Guard - OpenWrt 一键安装脚本
 # 用法:
 #   最新 main: wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/main/OpenWrt/install-online.sh | sh
-#   固定版本:   wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.17/OpenWrt/install-online.sh | sh -s -- v1.3.17
+#   固定版本:   wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.18/OpenWrt/install-online.sh | sh -s -- v1.3.18
 
 set -e
 
@@ -69,7 +69,7 @@ chmod +x /etc/init.d/haut-network-guard
 
 echo ""
 echo "=========================================="
-echo "  安装完成! (v1.3.17)"
+echo "  安装完成! (v1.3.18)"
 echo "=========================================="
 echo ""
 echo "下一步 - 配置账号:"

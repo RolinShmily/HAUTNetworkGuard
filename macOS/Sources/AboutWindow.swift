@@ -4,13 +4,15 @@ import Cocoa
 class AboutWindowController: NSWindowController {
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 300, height: 220),
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 250),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         window.title = "关于"
         window.center()
+        window.isReleasedWhenClosed = false
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         self.init(window: window)
         setupUI()
     }
@@ -24,7 +26,7 @@ class AboutWindowController: NSWindowController {
         let nameLabel = NSTextField(labelWithString: AppConfig.appName)
         nameLabel.font = NSFont.boldSystemFont(ofSize: 20)
         nameLabel.alignment = .center
-        nameLabel.frame = NSRect(x: 0, y: 160, width: 300, height: 30)
+        nameLabel.frame = NSRect(x: 0, y: 188, width: 360, height: 30)
         contentView.addSubview(nameLabel)
 
         // 版本号
@@ -32,14 +34,14 @@ class AboutWindowController: NSWindowController {
         versionLabel.font = NSFont.systemFont(ofSize: 12)
         versionLabel.textColor = .secondaryLabelColor
         versionLabel.alignment = .center
-        versionLabel.frame = NSRect(x: 0, y: 135, width: 300, height: 20)
+        versionLabel.frame = NSRect(x: 0, y: 162, width: 360, height: 20)
         contentView.addSubview(versionLabel)
 
         // 描述
         let descLabel = NSTextField(labelWithString: "河南工业大学校园网自动登录工具")
         descLabel.font = NSFont.systemFont(ofSize: 12)
         descLabel.alignment = .center
-        descLabel.frame = NSRect(x: 0, y: 105, width: 300, height: 20)
+        descLabel.frame = NSRect(x: 0, y: 132, width: 360, height: 20)
         contentView.addSubview(descLabel)
 
         // 作者
@@ -47,7 +49,7 @@ class AboutWindowController: NSWindowController {
         authorLabel.font = NSFont.systemFont(ofSize: 11)
         authorLabel.textColor = .secondaryLabelColor
         authorLabel.alignment = .center
-        authorLabel.frame = NSRect(x: 0, y: 75, width: 300, height: 20)
+        authorLabel.frame = NSRect(x: 0, y: 102, width: 360, height: 20)
         contentView.addSubview(authorLabel)
 
         // QQ群
@@ -55,15 +57,32 @@ class AboutWindowController: NSWindowController {
         qqLabel.font = NSFont.systemFont(ofSize: 11)
         qqLabel.textColor = .secondaryLabelColor
         qqLabel.alignment = .center
-        qqLabel.frame = NSRect(x: 0, y: 50, width: 300, height: 20)
+        qqLabel.frame = NSRect(x: 0, y: 76, width: 360, height: 20)
         contentView.addSubview(qqLabel)
 
+        let supportLabel = NSTextField(labelWithString: "遇到问题可前往 GitHub 提交 issue，或加入 QQ 群反馈。")
+        supportLabel.font = NSFont.systemFont(ofSize: 10)
+        supportLabel.textColor = .tertiaryLabelColor
+        supportLabel.alignment = .center
+        supportLabel.frame = NSRect(x: 10, y: 48, width: 340, height: 18)
+        contentView.addSubview(supportLabel)
+
         // 网站
-        let websiteLabel = NSTextField(labelWithString: AppConfig.website)
-        websiteLabel.font = NSFont.systemFont(ofSize: 11)
-        websiteLabel.textColor = .linkColor
+        let websiteLabel = NSTextField(frame: NSRect(x: 20, y: 20, width: 320, height: 20))
+        websiteLabel.isEditable = false
+        websiteLabel.isBordered = false
+        websiteLabel.drawsBackground = false
+        websiteLabel.isSelectable = true
         websiteLabel.alignment = .center
-        websiteLabel.frame = NSRect(x: 0, y: 25, width: 300, height: 20)
+        websiteLabel.allowsEditingTextAttributes = true
+        websiteLabel.attributedStringValue = NSAttributedString(
+            string: AppConfig.website,
+            attributes: [
+                .foregroundColor: NSColor.linkColor,
+                .underlineStyle: NSUnderlineStyle.single.rawValue,
+                .link: URL(string: AppConfig.website) as Any
+            ]
+        )
         contentView.addSubview(websiteLabel)
     }
 }

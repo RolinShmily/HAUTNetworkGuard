@@ -42,12 +42,16 @@ private slots:
   void tryAutoLogin();
 
 private:
+  void applyWindowStyle();
   void setupUi();
   void loadSettings();
   void saveSettings();
   void syncCredentialsToConfig();
   void triggerAutoLoginIfPossible(const QString &reason);
   void refreshActionState();
+  void setStatusDetail(const QString &message, bool warning = false);
+  void updateLastCheckLabel(const QString &prefix = "最近检测");
+  void updateOptionHint();
   void updateStatusDisplay(bool online, const QString &ip = "",
                            qint64 bytes = 0, qint64 seconds = 0);
   QString formatBytes(qint64 bytes);
@@ -56,14 +60,17 @@ private:
   // UI 组件
   QWidget *m_centralWidget;
   QLabel *m_statusLabel;
+  QLabel *m_statusDetailLabel;
   QLabel *m_ipLabel;
   QLabel *m_usageLabel;
   QLabel *m_timeLabel;
+  QLabel *m_lastCheckLabel;
   QLineEdit *m_usernameEdit;
   QLineEdit *m_passwordEdit;
   QCheckBox *m_autoSaveCheck;
   QCheckBox *m_autoLaunchCheck;
   QCheckBox *m_autoLoginCheck;
+  QLabel *m_optionHintLabel;
   QSpinBox *m_intervalSpinBox;
   QPushButton *m_loginBtn;
   QPushButton *m_logoutBtn;

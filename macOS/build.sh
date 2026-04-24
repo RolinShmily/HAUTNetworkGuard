@@ -37,6 +37,7 @@ swiftc \
     -framework Cocoa \
     -framework UserNotifications \
     -framework Network \
+    "$SOURCES_DIR/AppRuntime.swift" \
     "$SOURCES_DIR/Logger.swift" \
     "$SOURCES_DIR/Config.swift" \
     "$SOURCES_DIR/Encryption.swift" \

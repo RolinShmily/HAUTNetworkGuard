@@ -60,7 +60,7 @@
 
 **固定版本安装（推荐生产环境）：**
 ```bash
-wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.17/OpenWrt/install-online.sh | sh -s -- v1.3.17
+wget -qO- https://raw.githubusercontent.com/yellowpeachxgp/HAUTNetworkGuard/v1.3.18/OpenWrt/install-online.sh | sh -s -- v1.3.18
 ```
 
 **安装最新 main（适合测试）：**
@@ -252,6 +252,18 @@ cd OpenWrt
 ```
 
 ## 版本历史
+
+### v1.3.18 (2026-04)
+- **macOS**: 修复菜单栏“账号设置”窗口无法稳定打开的问题
+  - 修正 `SettingsWindowController` 的构造路径，避免错误落入 `NSWindowController(window: nil)` 导致窗口控制器存在但实际无窗口
+  - 菜单栏实用窗口统一走受控展示链路，补齐激活策略切换、前台激活、跨 Space 展示与关闭后恢复 `accessory` 状态
+  - 关于窗口、更新窗口与账号设置窗口共用同一套生命周期管理，减少窗口复开和前后台切换边界问题
+- **macOS**: 新增真实 UI smoke test，覆盖设置/关于/更新窗口主链路
+  - 新增 `macOS/tests/run_ui_smoke_tests.sh`
+  - 新增窗口打开、关闭、激活策略恢复的自动化断言
+  - GitHub Actions macOS job 接入 UI smoke test，发版前自动验证菜单栏窗口链路
+- **全平台**: 版本号与文档同步更新为 1.3.18
+  - Windows / macOS / OpenWrt 显示版本、User-Agent、安装命令、AI 文档和契约测试全部对齐
 
 ### v1.3.17 (2026-04)
 - **macOS**: 修复更新检测在代理/PAC/TLS 环境下的 HTTP2/安全连接失败

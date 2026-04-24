@@ -31,15 +31,22 @@ class StatusBarController: NSObject {
     // 需要持有设置窗口控制器，否则会被提前释放导致控件动作失效
     private var settingsWindowController: SettingsWindowController?
     private var aboutWindowController: AboutWindowController?
+    private var utilityWindowObservers: [ObjectIdentifier: NSObjectProtocol] = [:]
 
     override init() {
         super.init()
         Logger.debug("初始化菜单栏控制器")
         setupStatusItem()
         setupMenu()
-        requestNotificationPermission()
-        startMonitoring()
-        setupUpdateChecker()
+        if AppRuntime.isUISmokeTest {
+            Logger.info("已启用 macOS UI smoke test 模式，跳过通知、网络轮询和自动更新后台任务")
+            currentStatus = .offline
+            updateUI()
+        } else {
+            requestNotificationPermission()
+            startMonitoring()
+            setupUpdateChecker()
+        }
         setupNotifications()
     }
     
@@ -76,6 +83,251 @@ extension StatusBarController {
                 systemSymbolName: checkingIcon,
                 accessibilityDescription: "网络状态"
             )
+        }
+    }
+}
+
+// MARK: - 窗口展示
+extension StatusBarController {
+    private func presentUtilityWindow(_ controller: NSWindowController, kind: String) {
+        DispatchQueue.main.async { [weak self, controller] in
+            guard let self else {
+                Logger.warn("展示 \(kind) 窗口失败：窗口控制器已释放")
+                return
+            }
+
+            controller.showWindow(nil)
+            guard let window = controller.window else {
+                Logger.warn("展示 \(kind) 窗口失败：窗口尚未创建")
+                return
+            }
+
+            self.registerUtilityWindowObserver(for: window, kind: kind)
+            window.isReleasedWhenClosed = false
+            window.collectionBehavior.insert(.moveToActiveSpace)
+            window.collectionBehavior.insert(.fullScreenAuxiliary)
+
+            let changed = NSApp.setActivationPolicy(.regular)
+            Logger.debug("准备展示 \(kind) 窗口 (activationPolicyChanged=\(changed))")
+
+            window.orderFrontRegardless()
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            _ = NSRunningApplication.current.activate(
+                options: [.activateAllWindows, .activateIgnoringOtherApps]
+            )
+        }
+    }
+
+    private func registerUtilityWindowObserver(for window: NSWindow, kind: String) {
+        let key = ObjectIdentifier(window)
+        if let observer = utilityWindowObservers[key] {
+            NotificationCenter.default.removeObserver(observer)
+        }
+
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            guard let self else { return }
+            Logger.debug("\(kind) 窗口已关闭")
+            if let window {
+                let key = ObjectIdentifier(window)
+                if let observer = self.utilityWindowObservers.removeValue(forKey: key) {
+                    NotificationCenter.default.removeObserver(observer)
+                }
+            }
+
+            switch kind {
+            case "账号设置":
+                self.settingsWindowController = nil
+            case "关于":
+                self.aboutWindowController = nil
+            case "更新":
+                self.updateWindowController = nil
+            default:
+                break
+            }
+
+            self.restoreAccessoryActivationIfPossible()
+        }
+
+        utilityWindowObservers[key] = observer
+    }
+
+    private func restoreAccessoryActivationIfPossible() {
+        let hasVisibleUtilityWindow =
+            (settingsWindowController?.window?.isVisible ?? false) ||
+            (aboutWindowController?.window?.isVisible ?? false) ||
+            (updateWindowController?.window?.isVisible ?? false)
+
+        if hasVisibleUtilityWindow {
+            Logger.debug("仍有可见窗口，保持 regular 激活策略")
+            return
+        }
+
+        let changed = NSApp.setActivationPolicy(.accessory)
+        Logger.debug("恢复菜单栏应用激活策略 (changed=\(changed))")
+    }
+}
+
+// MARK: - UI Smoke Test
+extension StatusBarController {
+    func runUISmokeTest(completion: @escaping (Bool, String) -> Void) {
+        Logger.info("开始执行 macOS UI smoke test")
+        stepOpenSettingsForSmokeTest(completion: completion)
+    }
+
+    private func stepOpenSettingsForSmokeTest(completion: @escaping (Bool, String) -> Void) {
+        settingsAction()
+        waitForWindow(title: "账号设置", shouldBeVisible: true, timeout: 2.0) { [weak self] ok in
+            guard let self else { return }
+            guard ok else {
+                completion(false, "账号设置窗口未能成功打开")
+                return
+            }
+            guard NSApp.activationPolicy() == .regular else {
+                completion(false, "打开账号设置后激活策略未切换到 regular")
+                return
+            }
+            self.closeWindow(title: "账号设置")
+            self.waitForActivationPolicy(.accessory, timeout: 2.0) { restored in
+                guard restored else {
+                    completion(false, "关闭账号设置后未恢复到 accessory 激活策略")
+                    return
+                }
+                self.stepReopenSettingsForSmokeTest(completion: completion)
+            }
+        }
+    }
+
+    private func stepReopenSettingsForSmokeTest(completion: @escaping (Bool, String) -> Void) {
+        settingsAction()
+        waitForWindow(title: "账号设置", shouldBeVisible: true, timeout: 2.0) { [weak self] ok in
+            guard let self else { return }
+            guard ok else {
+                completion(false, "账号设置窗口二次打开失败")
+                return
+            }
+            self.closeWindow(title: "账号设置")
+            self.waitForWindow(title: "账号设置", shouldBeVisible: false, timeout: 2.0) { closed in
+                guard closed else {
+                    completion(false, "账号设置窗口关闭状态异常")
+                    return
+                }
+                self.stepOpenAboutForSmokeTest(completion: completion)
+            }
+        }
+    }
+
+    private func stepOpenAboutForSmokeTest(completion: @escaping (Bool, String) -> Void) {
+        aboutAction()
+        waitForWindow(title: "关于", shouldBeVisible: true, timeout: 2.0) { [weak self] ok in
+            guard let self else { return }
+            guard ok else {
+                completion(false, "关于窗口未能成功打开")
+                return
+            }
+            self.closeWindow(title: "关于")
+            self.waitForWindow(title: "关于", shouldBeVisible: false, timeout: 2.0) { closed in
+                guard closed else {
+                    completion(false, "关于窗口关闭状态异常")
+                    return
+                }
+                self.stepOpenUpdateForSmokeTest(completion: completion)
+            }
+        }
+    }
+
+    private func stepOpenUpdateForSmokeTest(completion: @escaping (Bool, String) -> Void) {
+        let releaseInfo = ReleaseInfo(
+            version: AppConfig.version,
+            htmlURL: AppConfig.website,
+            downloadURL: nil,
+            releaseNotes: "UI smoke test placeholder"
+        )
+        showUpdateWindow(result: .noUpdate(releaseInfo))
+        waitForWindow(title: "检查更新", shouldBeVisible: true, timeout: 2.0) { [weak self] ok in
+            guard let self else { return }
+            guard ok else {
+                completion(false, "更新窗口未能成功打开")
+                return
+            }
+            self.closeWindow(title: "检查更新")
+            self.waitForWindow(title: "检查更新", shouldBeVisible: false, timeout: 2.0) { closed in
+                guard closed else {
+                    completion(false, "更新窗口关闭状态异常")
+                    return
+                }
+                self.waitForActivationPolicy(.accessory, timeout: 2.0) { restored in
+                    if restored {
+                        completion(true, "macOS UI smoke test 通过")
+                    } else {
+                        completion(false, "关闭全部窗口后未恢复到 accessory 激活策略")
+                    }
+                }
+            }
+        }
+    }
+
+    private func waitForWindow(
+        title: String,
+        shouldBeVisible: Bool,
+        timeout: TimeInterval,
+        completion: @escaping (Bool) -> Void
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+
+        func poll() {
+            let visible = NSApp.windows.contains { window in
+                window.title == title && window.isVisible
+            }
+            if visible == shouldBeVisible {
+                completion(true)
+                return
+            }
+            if Date() >= deadline {
+                Logger.warn("UI smoke test 窗口检测超时 title=\(title) expected_visible=\(shouldBeVisible)")
+                completion(false)
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: poll)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: poll)
+    }
+
+    private func waitForActivationPolicy(
+        _ policy: NSApplication.ActivationPolicy,
+        timeout: TimeInterval,
+        completion: @escaping (Bool) -> Void
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+
+        func poll() {
+            if NSApp.activationPolicy() == policy {
+                completion(true)
+                return
+            }
+            if Date() >= deadline {
+                Logger.warn("UI smoke test 激活策略检测超时 expected=\(policy.rawValue) actual=\(NSApp.activationPolicy().rawValue)")
+                completion(false)
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: poll)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: poll)
+    }
+
+    private func closeWindow(title: String) {
+        if let window =
+            NSApp.windows.first(where: { $0.title == title && $0.isVisible }) ??
+            NSApp.windows.first(where: { $0.title == title }) {
+            window.close()
+        } else {
+            Logger.warn("尝试关闭窗口失败：未找到 title=\(title)")
         }
     }
 }
@@ -401,18 +653,22 @@ extension StatusBarController {
 
     @objc private func settingsAction() {
         Logger.debug("打开账号设置窗口")
-        settingsWindowController = SettingsWindowController()
-        settingsWindowController?.showWindow(nil)
-        settingsWindowController?.window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        if settingsWindowController == nil {
+            settingsWindowController = SettingsWindowController()
+        }
+        if let controller = settingsWindowController {
+            presentUtilityWindow(controller, kind: "账号设置")
+        }
     }
 
     @objc private func aboutAction() {
         Logger.debug("打开关于窗口")
-        aboutWindowController = AboutWindowController()
-        aboutWindowController?.showWindow(nil)
-        aboutWindowController?.window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        if aboutWindowController == nil {
+            aboutWindowController = AboutWindowController()
+        }
+        if let controller = aboutWindowController {
+            presentUtilityWindow(controller, kind: "关于")
+        }
     }
 
     @objc private func checkUpdateAction() {
@@ -483,8 +739,8 @@ extension StatusBarController {
             result: result,
             onSkip: onSkip
         )
-        updateWindowController?.showWindow(nil)
-        updateWindowController?.window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        if let controller = updateWindowController {
+            presentUtilityWindow(controller, kind: "更新")
+        }
     }
 }

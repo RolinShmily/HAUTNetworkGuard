@@ -8,15 +8,21 @@ class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private var requiresInitialConfiguration = false
     private var didPersistSettings = false
 
-    convenience init(isInitialSetup: Bool = false) {
+    convenience init() {
+        self.init(isInitialSetup: false)
+    }
+
+    convenience init(isInitialSetup: Bool) {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 400),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 500),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         window.title = "账号设置"
         window.center()
+        window.isReleasedWhenClosed = false
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         self.init(window: window)
         requiresInitialConfiguration = isInitialSetup
         window.delegate = self
@@ -30,6 +36,7 @@ class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private var autoLoginCheckbox: NSButton!
     private var intervalSlider: NSSlider!
     private var intervalLabel: NSTextField!
+    private var optionHintLabel: NSTextField!
     private var saveButton: NSButton!
 
     private func setupUI() {
@@ -40,102 +47,151 @@ class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
         // 标题
         let titleLabel = NSTextField(labelWithString: "HAUT Network Guard")
-        titleLabel.font = NSFont.boldSystemFont(ofSize: 18)
-        titleLabel.frame = NSRect(x: 20, y: 350, width: 360, height: 30)
+        titleLabel.font = NSFont.boldSystemFont(ofSize: 20)
+        titleLabel.frame = NSRect(x: 20, y: 442, width: 420, height: 28)
         contentView.addSubview(titleLabel)
 
         // 副标题
-        let subtitleLabel = NSTextField(labelWithString: "河南工业大学校园网自动登录工具")
+        let subtitleLabel = NSTextField(
+            labelWithString: requiresInitialConfiguration
+                ? "首次启动需要先完成账号配置"
+                : "河南工业大学校园网自动登录工具"
+        )
         subtitleLabel.font = NSFont.systemFont(ofSize: 12)
         subtitleLabel.textColor = .secondaryLabelColor
-        subtitleLabel.frame = NSRect(x: 20, y: 330, width: 360, height: 20)
+        subtitleLabel.frame = NSRect(x: 20, y: 418, width: 420, height: 20)
         contentView.addSubview(subtitleLabel)
 
+        let introLabel = NSTextField(
+            labelWithString: requiresInitialConfiguration
+                ? "建议同时开启“记住密码 + 自动登录”，这样重启后也能自动恢复网络连接。"
+                : "修改后会立即更新检测间隔、自启动和自动登录策略。"
+        )
+        introLabel.font = NSFont.systemFont(ofSize: 11)
+        introLabel.textColor = .tertiaryLabelColor
+        introLabel.frame = NSRect(x: 20, y: 396, width: 420, height: 20)
+        contentView.addSubview(introLabel)
+
         // 分割线
-        let separator1 = NSBox(frame: NSRect(x: 20, y: 315, width: 360, height: 1))
+        let separator1 = NSBox(frame: NSRect(x: 20, y: 382, width: 420, height: 1))
         separator1.boxType = .separator
         contentView.addSubview(separator1)
 
         // 学号标签
         let userLabel = NSTextField(labelWithString: "学号:")
-        userLabel.frame = NSRect(x: 20, y: 275, width: 60, height: 20)
+        userLabel.frame = NSRect(x: 20, y: 340, width: 60, height: 20)
         contentView.addSubview(userLabel)
 
         // 学号输入框
         usernameField = NSTextField()
-        usernameField.frame = NSRect(x: 80, y: 272, width: 300, height: 26)
+        usernameField.frame = NSRect(x: 92, y: 336, width: 348, height: 28)
         usernameField.placeholderString = "请输入学号"
         usernameField.stringValue = AppConfig.shared.username
+        usernameField.toolTip = "校园网登录学号"
         contentView.addSubview(usernameField)
 
         // 密码标签
         let passLabel = NSTextField(labelWithString: "密码:")
-        passLabel.frame = NSRect(x: 20, y: 235, width: 60, height: 20)
+        passLabel.frame = NSRect(x: 20, y: 294, width: 60, height: 20)
         contentView.addSubview(passLabel)
 
         // 密码输入框
         passwordField = NSSecureTextField()
-        passwordField.frame = NSRect(x: 80, y: 232, width: 300, height: 26)
+        passwordField.frame = NSRect(x: 92, y: 290, width: 348, height: 28)
         passwordField.placeholderString = "请输入密码"
         passwordField.stringValue = AppConfig.shared.password
+        passwordField.toolTip = "不会在界面明文显示"
         contentView.addSubview(passwordField)
 
         // 分割线
-        let separator2 = NSBox(frame: NSRect(x: 20, y: 215, width: 360, height: 1))
+        let separator2 = NSBox(frame: NSRect(x: 20, y: 270, width: 420, height: 1))
         separator2.boxType = .separator
         contentView.addSubview(separator2)
 
         // 检测间隔设置
         let intervalTitleLabel = NSTextField(labelWithString: "检测间隔:")
-        intervalTitleLabel.frame = NSRect(x: 20, y: 180, width: 70, height: 20)
+        intervalTitleLabel.frame = NSRect(x: 20, y: 236, width: 70, height: 20)
         contentView.addSubview(intervalTitleLabel)
         
         intervalSlider = NSSlider(value: Double(AppConfig.shared.checkInterval),
                                    minValue: 30, maxValue: 300,
                                    target: self, action: #selector(intervalChanged))
-        intervalSlider.frame = NSRect(x: 90, y: 180, width: 200, height: 20)
+        intervalSlider.frame = NSRect(x: 92, y: 236, width: 250, height: 20)
+        intervalSlider.altIncrementValue = 15
+        intervalSlider.toolTip = "建议 30-60 秒，兼顾响应速度和请求频率"
         contentView.addSubview(intervalSlider)
         
         intervalLabel = NSTextField(labelWithString: "\(AppConfig.shared.checkInterval) 秒")
-        intervalLabel.frame = NSRect(x: 300, y: 180, width: 80, height: 20)
+        intervalLabel.frame = NSRect(x: 350, y: 236, width: 90, height: 20)
         intervalLabel.alignment = .right
         contentView.addSubview(intervalLabel)
 
+        let intervalHintLabel = NSTextField(labelWithString: "检测频率越高，离线恢复越快；默认建议保持在 30-60 秒。")
+        intervalHintLabel.font = NSFont.systemFont(ofSize: 10)
+        intervalHintLabel.textColor = .tertiaryLabelColor
+        intervalHintLabel.frame = NSRect(x: 92, y: 214, width: 348, height: 16)
+        contentView.addSubview(intervalHintLabel)
+
         // 选项区域
         // 自动保存复选框
-        autoSaveCheckbox = NSButton(checkboxWithTitle: "记住密码", target: nil, action: nil)
-        autoSaveCheckbox.frame = NSRect(x: 80, y: 140, width: 120, height: 20)
+        autoSaveCheckbox = NSButton(checkboxWithTitle: "记住密码", target: self, action: #selector(optionStateChanged))
+        autoSaveCheckbox.frame = NSRect(x: 92, y: 176, width: 130, height: 20)
         autoSaveCheckbox.state = AppConfig.shared.autoSave ? .on : .off
+        autoSaveCheckbox.toolTip = "勾选后会保存密码，便于系统重启后自动恢复登录"
         contentView.addSubview(autoSaveCheckbox)
 
         // 开机自启动复选框
-        autoLaunchCheckbox = NSButton(checkboxWithTitle: "开机自启动", target: nil, action: nil)
-        autoLaunchCheckbox.frame = NSRect(x: 220, y: 140, width: 120, height: 20)
+        autoLaunchCheckbox = NSButton(checkboxWithTitle: "开机自启动", target: self, action: #selector(optionStateChanged))
+        autoLaunchCheckbox.frame = NSRect(x: 240, y: 176, width: 130, height: 20)
         autoLaunchCheckbox.state = LaunchManager.shared.isEnabled ? .on : .off
+        autoLaunchCheckbox.toolTip = "登录系统后自动拉起应用并在菜单栏保持守护"
         contentView.addSubview(autoLaunchCheckbox)
         
         // 自动登录复选框
-        autoLoginCheckbox = NSButton(checkboxWithTitle: "自动登录 (断线重连)", target: nil, action: nil)
-        autoLoginCheckbox.frame = NSRect(x: 80, y: 110, width: 200, height: 20)
+        autoLoginCheckbox = NSButton(checkboxWithTitle: "自动登录 (断线重连)", target: self, action: #selector(optionStateChanged))
+        autoLoginCheckbox.frame = NSRect(x: 92, y: 146, width: 220, height: 20)
         autoLoginCheckbox.state = AppConfig.shared.autoLogin ? .on : .off
+        autoLoginCheckbox.toolTip = "检测到离线后自动尝试恢复网络连接"
         contentView.addSubview(autoLoginCheckbox)
 
         // 提示信息
         let hintLabel = NSTextField(labelWithString: "开启后，程序将自动检测并保持网络连接")
         hintLabel.font = NSFont.systemFont(ofSize: 10)
         hintLabel.textColor = .tertiaryLabelColor
-        hintLabel.frame = NSRect(x: 80, y: 85, width: 300, height: 16)
+        hintLabel.frame = NSRect(x: 92, y: 122, width: 320, height: 16)
         contentView.addSubview(hintLabel)
+
+        optionHintLabel = NSTextField(frame: NSRect(x: 20, y: 68, width: 420, height: 44))
+        optionHintLabel.isEditable = false
+        optionHintLabel.isBordered = false
+        optionHintLabel.drawsBackground = true
+        optionHintLabel.backgroundColor = NSColor(calibratedRed: 0.93, green: 0.96, blue: 1.0, alpha: 1.0)
+        optionHintLabel.font = NSFont.systemFont(ofSize: 11)
+        if let cell = optionHintLabel.cell as? NSTextFieldCell {
+            cell.wraps = true
+            cell.isScrollable = false
+            cell.lineBreakMode = .byWordWrapping
+            cell.usesSingleLineMode = false
+        }
+        contentView.addSubview(optionHintLabel)
 
         // 保存按钮
         saveButton = NSButton(
-            title: AppConfig.shared.hasConfigured ? "保存设置" : "保存并启动",
+            title: requiresInitialConfiguration ? "保存并启动" : "保存设置",
             target: self,
             action: #selector(saveAction)
         )
         saveButton.bezelStyle = .rounded
-        saveButton.frame = NSRect(x: 280, y: 20, width: 100, height: 32)
+        saveButton.keyEquivalent = "\r"
+        saveButton.frame = NSRect(x: 330, y: 20, width: 110, height: 32)
         contentView.addSubview(saveButton)
+
+        if !requiresInitialConfiguration {
+            let closeButton = NSButton(title: "关闭", target: self, action: #selector(closeAction))
+            closeButton.bezelStyle = .rounded
+            closeButton.frame = NSRect(x: 240, y: 20, width: 80, height: 32)
+            contentView.addSubview(closeButton)
+        }
 
         // 版本信息
         let versionLabel = NSTextField(labelWithString: "v\(AppConfig.version) by \(AppConfig.author)")
@@ -143,11 +199,47 @@ class SettingsWindowController: NSWindowController, NSWindowDelegate {
         versionLabel.textColor = .tertiaryLabelColor
         versionLabel.frame = NSRect(x: 20, y: 20, width: 200, height: 16)
         contentView.addSubview(versionLabel)
+
+        updateOptionHint()
     }
     
     @objc private func intervalChanged() {
         let value = Int(intervalSlider.doubleValue)
         intervalLabel.stringValue = "\(value) 秒"
+    }
+
+    @objc private func optionStateChanged() {
+        updateOptionHint()
+    }
+
+    @objc private func closeAction() {
+        window?.close()
+    }
+
+    private func updateOptionHint() {
+        let autoSave = autoSaveCheckbox.state == .on
+        let autoLogin = autoLoginCheckbox.state == .on
+        let autoLaunch = autoLaunchCheckbox.state == .on
+
+        var message: String
+        var textColor = NSColor(calibratedRed: 0.22, green: 0.33, blue: 0.48, alpha: 1.0)
+        var backgroundColor = NSColor(calibratedRed: 0.93, green: 0.96, blue: 1.0, alpha: 1.0)
+
+        if autoLogin && autoSave {
+            message = "当前配置适合长期托管：启动后和掉线后都可以自动恢复连接。"
+        } else if autoLogin {
+            message = "已开启自动登录，但未记住密码。当前会话可重连，重启应用或系统后需要重新输入密码。"
+            textColor = NSColor(calibratedRed: 0.58, green: 0.36, blue: 0.0, alpha: 1.0)
+            backgroundColor = NSColor(calibratedRed: 1.0, green: 0.97, blue: 0.90, alpha: 1.0)
+        } else {
+            message = "已关闭自动登录。程序会继续检测网络状态，但离线后需要手动登录。"
+        }
+
+        message += autoLaunch ? " 已启用开机自启动。" : " 当前未启用开机自启动。"
+
+        optionHintLabel.stringValue = message
+        optionHintLabel.textColor = textColor
+        optionHintLabel.backgroundColor = backgroundColor
     }
 
     @objc private func saveAction() {

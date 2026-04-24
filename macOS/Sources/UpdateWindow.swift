@@ -31,6 +31,8 @@ class UpdateWindowController: NSWindowController {
         )
         window.title = "检查更新"
         window.center()
+        window.isReleasedWhenClosed = false
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
 
         super.init(window: window)
         setupUI()

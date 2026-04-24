@@ -108,8 +108,9 @@ jobs:
       - name: Build macOS App
         run: |
           cd macOS
-          chmod +x build.sh create-dmg.sh tests/run_smoke_tests.sh
+          chmod +x build.sh create-dmg.sh tests/run_smoke_tests.sh tests/run_ui_smoke_tests.sh
           ./tests/run_smoke_tests.sh
+          ./tests/run_ui_smoke_tests.sh
           ./build.sh
           ./create-dmg.sh
 
